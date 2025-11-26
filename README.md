@@ -1,6 +1,6 @@
 # K8s Universal Inspector
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![License](https://img.shields.io/badge/license-GPLv3-blue.svg)
 ![Go Version](https://img.shields.io/badge/go-1.20%2B-cyan)
 ![Status](https://img.shields.io/badge/status-active-green)
 
@@ -46,7 +46,7 @@ Unlike standard tools that focus on a single cluster context, this tool aggregat
 
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/yourusername/k8s-universal-inspector.git](https://github.com/yourusername/k8s-universal-inspector.git)
+    git clone https://github.com/yourusername/k8s-universal-inspector.git
     cd k8s-universal-inspector
     ```
 
