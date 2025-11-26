@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - K8s Universal Inspector</title>
+    <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
+    
+    <style>
+        /* Per-page width override */
+        .stats-container, .container, .search-container, .errors {
+            max-width: 1600px;
+        }
+
+        /* --- UPDATED: 2-Column Grid --- */
+        .stats-container {
+            grid-template-columns: 1fr 1fr;
+            align-items: flex-start;
+        }
+
+        /* Chart/Stat Widget Styles */
+        .stat-widget { padding: 0; }
+        .stat-widget h3 { padding: 1rem 1.5rem; }
+        
+        /* --- Stacked Bar Chart Styles --- */
+        .chart-container {
+            padding: 1.5rem;
+        }
+        .stacked-bar-container {
+            display: flex;
+            width: 100%;
+            height: 30px;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #374151;
+            border: 1px solid #374151;
+            margin-bottom: 1.5rem;
+        }
+        .bar-segment {
+            height: 100%;
+            transition: width 0.3s ease-out; 
+            box-shadow: 0 0 10px 0px; 
+            cursor: help;
+        }
+        
+        /* Bar colors */
+        .bar-segment.status-active { background: #10b981; box-shadow: 0 0 10px 0px #10b981; }
+        .bar-segment.status-terminating { background: #ef4444; box-shadow: 0 0 10px 0px #ef4444; }
+
+        /* Legend */
+        .chart-legend {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 1rem;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.9rem;
+            color: #9ca3af;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+        }
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            margin-right: 8px;
+        }
+        .bar-chart-list .bar-label-other {
+            font-weight: 700;
+            font-style: italic;
+            color: #9ca3af;
+        }
+
+        /* Column Width Limiter */
+        #mainTable .col-ns,
+        #mainTable .col-clusters {
+            white-space: normal; /* Allow wrapping */
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+
+    {{ template "sidebar" . }}
+
+    <main class="main-content">
+
+        <h1>
+            {{ .Title }}
+            <span class="title-count">({{ .TotalUniqueNamespaces }})</span>
+        </h1>
+
+        <div class="stats-container" style="max-width: 1600px;">
+            
+            <div class="stat-widget">
+                <h3>Namespaces by Cluster</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        {{ $colors := ColorSlice }}
+                        {{ $totalClusters := 0 }}
+                        {{ range .ClusterStats }}{{ $totalClusters = add $totalClusters .Count }}{{ end }}
+                        
+                        {{ range $i, $stat := .ClusterStats }}
+                            {{ $color := index $colors (mod $i 10) }}
+                            <div class="bar-segment" 
+                                 style="width: {{ printf "%.2f" (fdiv .Count $totalClusters | mulf 100.0) }}%; background-color: {{ $color }}; box-shadow: 0 0 10px 0px {{ $color }};"
+                                 title="{{ .Name }}: {{ .Count }}"></div>
+                        {{ end }}
+                    </div>
+                    <div class="chart-legend">
+                        {{ range $i, $stat := .ClusterStats }}
+                        <div class="legend-item">
+                            <span class="legend-color" style="background-color: {{ index $colors (mod $i 10) }};"></span>
+                            {{ .Name }} ({{ .Count }})
+                        </div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stat-widget"> 
+                <h3>Namespace Status ({{ .TotalNamespaceInstances }} Total)</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        {{ range .NamespaceStatusStats }}
+                            <div class="bar-segment status-{{ .Status | ToLower }}" 
+                                 style="width: {{ printf "%.2f" (fdiv .Count $.TotalNamespaceInstances | mulf 100.0) }}%;"
+                                 title="{{ .Status }}: {{ .Count }}"></div>
+                        {{ end }}
+                    </div>
+                    <div class="chart-legend">
+                        {{ range .NamespaceStatusStats }}
+                        <div class="legend-item">
+                            <span class="legend-color status-{{ .Status | ToLower }}"></span>
+                            {{ .Status }} ({{ .Count }})
+                        </div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+        {{ if .ErrorLogs }}
+        <div class="errors">
+            <h2>Connection Errors</h2>
+            <ul>
+                {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
+            </ul>
+        </div>
+        {{ end }}
+
+        <div class="search-container">
+            <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="Search by namespace or cluster...">
+        </div>
+
+        <div class="container" style="margin-top: 1.5rem;">
+            <table id="mainTable">
+                <thead id="tableHeader">
+                    <tr>
+                        <th class="sortable-header col-ns" data-sort-type="string">Namespace</th>
+                        <th class="sortable-header col-clusters" data-sort-type="string">Clusters Present On</th>
+                        <th class="sortable-header" data-sort-type="string">Status</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    {{ range .Namespaces }}
+                    <tr>
+                        <td class="col-ns">
+                            <a href="{{ MakeURL $.QueryString "/namespace/detail" "name" .Name }}" class="deployment-link">
+                                {{ .Name }}
+                            </a>
+                        </td>
+                        <td class="col-clusters">
+                            {{ range .Clusters }}
+                                <a href="{{ MakeURL $.QueryString "/cluster/detail" "cluster_name" . }}" class="tag-link">
+                                    <span class="cluster-tag">{{ . }}</span>
+                                </a>
+                            {{ end }}
+                        </td>
+                        <td>
+                            {{ range $status, $count := .StatusCounts }}
+                                <span class="status-tag status-{{ $status | ToLower }}">
+                                    {{ $status }}: {{ $count }}
+                                </span>
+                            {{ end }}
+                        </td>
+                    </tr>
+                    {{ else }}
+                    <tr>
+                        <td colspan="3" class="no-data">No namespaces found.</td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+            <div class="footer">
+                Last refreshed: {{ .LastRefreshed }}
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // --- Search Function ---
+        function filterTable() {
+            let filter = document.getElementById('searchInput').value.toLowerCase();
+            let table = document.getElementById("mainTable");
+            let tr = table.getElementsByTagName("tbody")[0].getElementsByTagName("tr");
+            for (let i = 0; i < tr.length; i++) {
+                let rowText = tr[i].textContent || tr[i].innerText;
+                if (rowText.toLowerCase().indexOf(filter) > -1) {
+                    tr[i].style.display = "";
+                } else {
+                    tr[i].style.display = "none";
+                }
+            }
+        }
+        
+        // --- Auto-Refresh Removed ---
+
+        // --- Sorting Logic ---
+        document.addEventListener('DOMContentLoaded', function() {
+            
+            // --- Sorting Logic ---
+            const table = document.getElementById("mainTable");
+            const headerRow = document.getElementById("tableHeader");
+            const tableBody = document.getElementById("tableBody");
+            
+            if (table && headerRow && tableBody) {
+                const headers = headerRow.querySelectorAll('th.sortable-header');
+                headers.forEach((header, colIndex) => {
+                    header.addEventListener('click', () => {
+                        const sortType = header.dataset.sortType || 'string';
+                        const sortKey = header.dataset.sortKey;
+                        const currentAsc = header.classList.contains('sort-asc');
+                        const newAsc = !currentAsc; 
+                        headers.forEach(h => { h.classList.remove('sort-asc', 'sort-desc'); });
+                        if (newAsc) { header.classList.add('sort-asc'); } else { header.classList.add('sort-desc'); }
+                        sortRows(tableBody, colIndex, sortType, sortKey, newAsc);
+                    });
+                });
+            }
+
+            // --- Charting Logic Removed ---
+        });
+
+        // --- Sorting Helper Functions ---
+        function getCellValue(row, colIndex, sortType, sortKey) {
+            const cell = row.children[colIndex];
+            if (!cell) return '';
+            const value = (cell.firstElementChild?.textContent || cell.textContent || cell.innerText).trim();
+            if (sortType === 'number') {
+                return parseInt(value, 10) || 0;
+            }
+            return value.toLowerCase();
+        }
+
+        function sortRows(tableBody, colIndex, sortType, sortKey, asc) {
+            const rows = Array.from(tableBody.querySelectorAll('tr'));
+            const dirModifier = asc ? 1 : -1;
+            rows.sort((rowA, rowB) => {
+                const valA = getCellValue(rowA, colIndex, sortType, sortKey);
+                const valB = getCellValue(rowB, colIndex, sortType, sortKey);
+                if (sortType === 'number') { return (valA - valB) * dirModifier; }
+                else { return valA.localeCompare(valB) * dirModifier; }
+            });
+            rows.forEach(row => {
+                tableBody.appendChild(row);
+            });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - K8s Universal Inspector</title>
+    <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
+</head>
+<body>
+
+    {{ template "sidebar" . }}
+
+    <main class="main-content">
+        <h1>{{ .PodName }}</h1>
+        <div class="page-subtitle">
+            Pod in <strong>{{ .ClusterName }}</strong> / <strong>{{ .NamespaceName }}</strong>
+        </div>
+
+        {{ if .ErrorLogs }}
+        <div class="errors" style="max-width: 1600px;">
+            <h2>Errors</h2>
+            <ul>
+                {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
+            </ul>
+        </div>
+        {{ end }}
+        
+        <div class="detail-grid">
+            
+            <div class="detail-main">
+                
+                <div class="container-card">
+                    <h2 style="padding-left: 1.5rem;">
+                        <span style="font-weight: 700; color: #fff; font-size: 1.2rem; margin-right: 1.5rem;">Containers</span>
+                        
+                        <div id="container-tabs-visual" class="container-tab-buttons">
+                            {{ range $i, $c := .Containers }}
+                            <button class="container-tab-button {{ if eq $i 0 }}active{{ end }}" data-container="{{ .Name }}" data-type="spec">
+                                {{ .Name }} (App)
+                            </button>
+                            {{ end }}
+                            {{ range .InitContainers }}
+                            <button class="container-tab-button" data-container="{{ .Name }}" data-type="spec">
+                                {{ .Name }} (Init)
+                            </button>
+                            {{ end }}
+                        </div>
+                        
+                        <button id="logs-button" class="container-tab-button" data-container="{{ if .Containers }}{{ (index .Containers 0).Name }}{{ else }}{{ (index .InitContainers 0).Name }}{{ end }}" data-type="logs" style="margin-left: auto;">View Logs</button>
+                    </h2>
+                    
+                    <div id="spec-panel-container" class="tab-panel-container">
+                        
+                        {{ range $i, $c := .InitContainers }}
+                        <div id="container-spec-{{ .Name }}" 
+                             class="spec-panel" 
+                             {{ if gt (len $.InitContainers) (add $i 1) }}style="border-bottom: 1px solid #374151;"{{ end }}>
+                            
+                            <div class="container-card-body">
+                                <h3>
+                                    <span class="status-icon" title="{{ .State }}">{{ if .Ready }}✅{{ else }}❌{{ end }}</span>
+                                    {{ .Name }} (Init | {{ .State }})
+                                </h3>
+                                <span class="image-tag">{{ .Image }}</span>
+
+                                <div class="key-value-list">
+                                    <div><span class="data-key">Restarts</span> <span class="data-value">{{ .RestartCount }}</span></div>
+                                    <div><span class="data-key">Reason</span> <span class="reason-col">{{ if .Reason }}{{ .Reason }}{{ else }}N/A{{ end }}</span></div>
+                                    <div><span class="data-key">Resources (L/R)</span> <span class="data-value">{{ if .Resources }}{{ .Resources }}{{ else }}Not Specified{{ end }}</span></div>
+                                </div>
+                                
+                                {{ if .Command }}
+                                <h3>Command & Args</h3>
+                                <div class="key-value-list">
+                                    <div><span class="data-key">Command</span> <span class="data-value">{{ range .Command }}{{ . }} {{ end }}</span></div>
+                                </div>
+                                {{ end }}
+
+                                {{ if .Env }}
+                                <h3>Environment Variables</h3>
+                                <div class="key-value-list">
+                                    {{ range $k, $v := .Env }}
+                                    <div><span class="data-key">{{ $k }}</span> <span class="data-value">{{ $v }}</span></div>
+                                    {{ end }}
+                                </div>
+                                {{ end }}
+                                
+                                {{ if .Mounts }}
+                                <h3>Volume Mounts</h3>
+                                <div class="key-value-list">
+                                    {{ range $path, $volume := .Mounts }}
+                                    <div><span class="data-key mount-path">{{ $path }}</span> <span class="data-value">from ({{ $volume }})</span></div>
+                                    {{ end }}
+                                </div>
+                                {{ end }}
+                                
+                                {{ if .Ports }}
+                                <h3>Ports</h3>
+                                <div class="tag-list" style="padding-top: 0.2rem;">
+                                    {{ range .Ports }}<span class="port-tag">{{ . }}</span>{{ end }}
+                                </div>
+                                {{ end }}
+                            </div>
+                        </div>
+                        {{ end }}
+
+                        {{ range $i, $c := .Containers }}
+                        <div id="container-spec-{{ .Name }}" 
+                             class="spec-panel {{ if and (eq $i 0) (not $.InitContainers) }}active{{ end }}">
+                            
+                            <div class="container-card-body">
+                                <h3>
+                                    <span class="status-icon" title="{{ .State }}">{{ if .Ready }}✅{{ else }}❌{{ end }}</span>
+                                    {{ .Name }} (App | {{ .State }})
+                                </h3>
+                                <span class="image-tag">{{ .Image }}</span>
+
+                                <div class="key-value-list">
+                                    <div><span class="data-key">Restarts</span> <span class="data-value">{{ .RestartCount }}</span></div>
+                                    <div><span class="data-key">Reason</span> <span class="reason-col">{{ if .Reason }}{{ .Reason }}{{ else }}N/A{{ end }}</span></div>
+                                    <div><span class="data-key">Resources (L/R)</span> <span class="data-value">{{ if .Resources }}{{ .Resources }}{{ else }}Not Specified{{ end }}</span></div>
+                                </div>
+                                
+                                {{ if .Command }}
+                                <h3>Command & Args</h3>
+                                <div class="key-value-list">
+                                    <div><span class="data-key">Command</span> <span class="data-value">{{ range .Command }}{{ . }} {{ end }}</span></div>
+                                </div>
+                                {{ end }}
+
+                                {{ if .Env }}
+                                <h3>Environment Variables</h3>
+                                <div class="key-value-list">
+                                    {{ range $k, $v := .Env }}
+                                    <div><span class="data-key">{{ $k }}</span> <span class="data-value">{{ $v }}</span></div>
+                                    {{ end }}
+                                </div>
+                                {{ end }}
+                                
+                                {{ if .Mounts }}
+                                <h3>Volume Mounts</h3>
+                                <div class="key-value-list">
+                                    {{ range $path, $volume := .Mounts }}
+                                    <div><span class="data-key mount-path">{{ $path }}</span> <span class="data-value">from ({{ $volume }})</span></div>
+                                    {{ end }}
+                                </div>
+                                {{ end }}
+                                
+                                {{ if .Ports }}
+                                <h3>Ports</h3>
+                                <div class="tag-list" style="padding-top: 0.2rem;">
+                                    {{ range .Ports }}<span class="port-tag">{{ . }}</span>{{ end }}
+                                </div>
+                                {{ end }}
+                            </div>
+                        </div>
+                        {{ end }}
+                        
+                        <div id="logs-panel" class="spec-panel">
+                            <pre id="log-output" class="log-viewer" style="overflow-x: auto;">--- Select 'View Logs' to start streaming ---</pre>
+                        </div>
+                    </div>
+                </div>
+                <div class="container">
+                    <h2>Events</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Last Seen</th>
+                                <th>Type</th>
+                                <th>Reason</th>
+                                <th>Count</th>
+                                <th>Message</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{ range .Events }}
+                            <tr class="{{ if eq .Type "Warning" }}event-warning{{ else }}event-normal{{ end }}">
+                                <td>{{ .LastSeen }}</td>
+                                <td>{{ .Type }}</td>
+                                <td>{{ .Reason }}</td>
+                                <td>{{ .Count }}</td>
+                                <td style="white-space: normal;">{{ .Message }}</td>
+                            </tr>
+                            {{ else }}
+                            <tr><td colspan="5" class="no-data">No events found for this pod.</td></tr>
+                            {{ end }}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="detail-sidebar">
+                
+                <div class="overview-box">
+                    <h2>Overview</h2>
+                    <ul class="overview-list">
+                        <li><strong>Node</strong> <span><a href="{{ MakeURL $.QueryString "/node/detail" "name" .Node "cluster_name" .ClusterName }}" class="deployment-link">{{ .Node }}</a></span></li>
+                        <li><strong>Owned By</strong> <span>
+                            {{ if .OwnerName }}
+                                <a href="{{ MakeOwnerURL $.QueryString .OwnerName .OwnerKind .NamespaceName .ClusterName }}" class="deployment-link">
+                                    {{ .OwnerName }} ({{ .OwnerKind }})
+                                </a>
+                            {{ else }}
+                                None (manual)
+                            {{ end }}
+                        </span></li>
+                        <li><strong>Status</strong> <span class="status status-{{ .Status | ToLower }}">{{ .Status }}</span></li>
+                        <li><strong>Reason</strong> <span class="reason-col">{{ .Reason }}</span></li>
+                        <li><strong>Pod IP</strong> <span>{{ .PodIP }}</span></li>
+                        <li><strong>Age</strong> <span>{{ .Age }}</span></li>
+                        <li><strong>QoS Class</strong> <span>{{ .QoS }}</span></li>
+                        <li><strong>Service Account</strong> <span>{{ .ServiceAccount }}</span></li>
+                    </ul>
+                </div>
+                
+                <div class="overview-box">
+                    <h2>Labels</h2>
+                    <div class="key-value-list" style="padding: 1rem 1.5rem; max-height: 400px; overflow-y: auto;">
+                        {{ range $k, $v := .Labels }}
+                        <div><span class="data-key">{{ $k }}</span> <span class="data-value">{{ $v }}</span></div>
+                        {{ else }}
+                        <span class="no-data" style="padding: 0.5rem 0; text-align: center; display: block;">No labels.</span>
+                        {{ end }}
+                    </div>
+                </div>
+
+                <div class="overview-box">
+                    <h2>Scheduling</h2>
+                    <ul class="overview-list">
+                        <li><strong>Node Selector</strong>
+                            <div class="tag-list" style="padding-top: 0.5rem; padding-left: 1rem;">
+                                {{ range $k, $v := .NodeSelector }}
+                                <span class="cluster-tag">{{ $k }}={{ $v }}</span>
+                                {{ else }}
+                                <span>None</span>
+                                {{ end }}
+                            </div>
+                        </li>
+                        <li><strong>Tolerations</strong>
+                            <div class="tag-list" style="padding-top: 0.5rem; padding-left: 1rem;">
+                                {{ range .Tolerations }}
+                                <span class="namespace-tag">{{ . }}</span>
+                                {{ else }}
+                                <span>None</span>
+                                {{ end }}
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                
+                <div class="container">
+                    <h2>Volumes</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Type</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{ range .Volumes }}
+                            <tr>
+                                <td>{{ .Name }}</td>
+                                <td>{{ .Type }}</td>
+                            </tr>
+                            {{ else }}
+                            <tr><td colspan="2" class="no-data">No volumes found.</td></tr>
+                            {{ end }}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="container">
+                    <h2>Conditions</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Status</th>
+                                <th>Reason</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{ range .Conditions }}
+                            <tr>
+                                <td>{{ .Type }}</td>
+                                <td>{{ .Status }}</td>
+                                <td>{{ .Reason }}</td>
+                            </tr>
+                            {{ else }}
+                            <tr><td colspan="3" class="no-data">No conditions found.</td></tr>
+                            {{ end }}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const logsButton = document.getElementById('logs-button');
+            const logPanel = document.getElementById('logs-panel');
+            const logOutput = document.getElementById('log-output');
+            const tabButtons = document.querySelectorAll('.container-tab-button');
+            
+            let logStreamActive = false;
+            let currentController = null; 
+            let activeContainerName = null;
+            
+            // Collect all spec panels (App and Init)
+            const allSpecPanels = document.querySelectorAll('.spec-panel');
+
+
+            // --- 1. Panel/Tab Switching Logic ---
+            function showPanel(containerName) {
+                // Stop log stream if running
+                if (logStreamActive) {
+                    if (currentController) currentController.abort();
+                    logStreamActive = false;
+                    logsButton.textContent = 'View Logs';
+                }
+
+                // Deactivate all buttons
+                tabButtons.forEach(btn => btn.classList.remove('active'));
+                
+                // Hide all panels (specs and logs)
+                allSpecPanels.forEach(panel => { panel.style.display = 'none'; });
+                
+                // Activate the selected button and spec panel
+                const selectedButton = document.querySelector(`.container-tab-button[data-container="${containerName}"]`);
+                if (selectedButton) selectedButton.classList.add('active');
+
+                const specPanel = document.getElementById(`container-spec-${containerName}`);
+                if (specPanel) {
+                     specPanel.style.display = 'block';
+                } else {
+                    // If we are switching to a container, ensure logs are hidden
+                    logPanel.style.display = 'none';
+                }
+                
+                // Set the active container
+                activeContainerName = containerName;
+            }
+
+            // Attach listeners to all buttons
+            tabButtons.forEach(button => {
+                const containerName = button.dataset.container;
+
+                button.addEventListener('click', function() {
+                    if (button.dataset.type === 'logs') {
+                        // Logs button is handled separately by logsButton.click()
+                        return;
+                    }
+                    showPanel(containerName);
+                });
+            });
+
+            // --- 2. Log Stream Logic ---
+            logsButton.addEventListener('click', async function() {
+                const selectedContainer = activeContainerName;
+                const cluster = "{{ .ClusterName }}";
+                const namespace = "{{ .NamespaceName }}";
+                const pod = "{{ .PodName }}";
+                
+                // --- Stop Stream (if active) ---
+                if (logStreamActive) {
+                    if (currentController) currentController.abort();
+                    logStreamActive = false;
+                    logsButton.textContent = 'View Logs';
+                    logOutput.textContent += '\n\n--- Stream Stopped by User ---';
+                    return;
+                }
+
+                // --- Start Stream ---
+                logStreamActive = true;
+                logsButton.textContent = 'Stop Streaming';
+                logOutput.textContent = '--- Starting Log Stream... ---\n';
+                
+                // Hide specs and show logs panel
+                allSpecPanels.forEach(panel => {
+                    panel.style.display = 'none';
+                });
+                logPanel.style.display = 'block';
+                
+                // Deactivate all SPEC buttons, activate LOGS button
+                tabButtons.forEach(btn => btn.classList.remove('active'));
+                
+                // 1. Keep current container active (to show source)
+                const currentContainerBtn = document.querySelector(`.container-tab-button[data-container="${selectedContainer}"]`);
+                if (currentContainerBtn) currentContainerBtn.classList.add('active');
+
+                // 2. Make Logs button active (to show mode)
+                const logButton = document.querySelector(`.container-tab-button[data-type="logs"]`);
+                if (logButton) logButton.classList.add('active');
+
+
+                currentController = new AbortController();
+                const signal = currentController.signal;
+
+                const url = `/pod/logs?cluster_name=${cluster}&namespace=${namespace}&name=${pod}&container=${selectedContainer}`;
+
+                try {
+                    const response = await fetch(url, { signal });
+                    if (!response.body) throw new Error('No response body or stream available.');
+                    if (!response.ok) throw new Error(`HTTP Error: ${response.status} ${response.statusText}`);
+
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    
+                    const processStream = async () => {
+                        while (true) {
+                            const { value, done } = await reader.read();
+                            if (done) break;
+
+                            const chunk = decoder.decode(value, { stream: true });
+                            logOutput.textContent += chunk;
+                            logOutput.scrollTop = logOutput.scrollHeight; // Scroll to bottom
+                        }
+                    };
+
+                    await processStream();
+                    logOutput.textContent += "\n\n--- Stream Finished ---";
+
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        logOutput.textContent += '\n\n--- Stream Aborted by Signal ---';
+                    } else {
+                        logOutput.textContent += `\n\n--- Stream Error: ${error.message} ---`;
+                    }
+                } finally {
+                    logStreamActive = false;
+                    logsButton.textContent = 'View Logs';
+                    // *** THIS IS THE FIX: We REMOVED showPanel(selectedContainer); here ***
+                    // This allows the log panel to stay open even after the stream ends.
+                }
+            });
+            
+            // --- 4. Initial Load ---
+            const initialContainerName = tabButtons[0].dataset.container;
+            showPanel(initialContainerName); 
+        });
+    </script>
+</body>
+</html>

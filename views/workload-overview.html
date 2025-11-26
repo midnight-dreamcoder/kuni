@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - K8s Universal Inspector</title>
+    <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.0.2/dist/chartjs-chart-treemap.min.js"></script>
+    
+    <style>
+        /* 2x2 Grid */
+        .dashboard-grid {
+            max-width: 1600px;
+            margin: 0 auto 1.5rem auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr; /* 2 columns */
+            gap: 1.5rem;
+        }
+        .dashboard-grid .full-width {
+            grid-column: 1 / -1;
+        }
+
+        /* Chart/Stat Widget Styles */
+        .stat-widget { padding: 0; }
+        .stat-widget h3 { padding: 1rem 1.5rem; }
+        
+        /* --- Stacked Bar Chart Styles --- */
+        .chart-container {
+            padding: 1.5rem;
+        }
+        .stacked-bar-container {
+            display: flex;
+            width: 100%;
+            height: 30px;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #374151; /* Fallback for empty/NaN */
+            border: 1px solid #374151;
+            margin-bottom: 1.5rem;
+        }
+        .bar-segment {
+            height: 100%;
+            transition: width 0.3s ease-out; 
+            box-shadow: 0 0 10px 0px; 
+            cursor: help;
+        }
+        
+        /* Define segment colors (re-using status colors) */
+        .bar-segment.status-running { background: #10b981; box-shadow: 0 0 10px 0px #10b981; }
+        .bar-segment.status-succeeded { background: #22d3ee; box-shadow: 0 0 10px 0px #22d3ee; }
+        .bar-segment.status-pending { background: #f59e0b; box-shadow: 0 0 10px 0px #f59e0b; }
+        .bar-segment.status-failed { background: #ef4444; box-shadow: 0 0 10px 0px #ef4444; }
+        .bar-segment.status-unknown { background: #9ca3af; box-shadow: 0 0 10px 0px #9ca3af; }
+        .bar-segment.ready { background: #10b981; box-shadow: 0 0 10px 0px #10b981; }
+        .bar-segment.not-ready { background: #ef4444; box-shadow: 0 0 10px 0px #ef4444; }
+
+        /* Legend */
+        .chart-legend {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 1rem;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.9rem;
+            color: #9ca3af;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+        }
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            margin-right: 8px;
+        }
+        
+        /* Treemap Container */
+        .treemap-container {
+            height: 400px;
+            padding: 1rem;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    {{ template "sidebar" . }}
+
+    <main class="main-content">
+        <h1>{{ .Title }}</h1>
+
+        {{ if .ErrorLogs }}
+        <div class="errors" style="max-width: 1600px;">
+            <h2>Errors During Fetch</h2>
+            <ul>
+                {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
+            </ul>
+        </div>
+        {{ end }}
+
+        <div class="dashboard-grid">
+            
+            <div class="stat-widget full-width">
+                <h3>Pod Distribution by Namespace (Top 30) - Status Heatmap</h3>
+                <div class="treemap-container">
+                    <canvas id="treemapChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="stat-widget">
+                <h3>Pod Status ({{ .PodStatusTotal }} Total)</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        {{ range .PodStatus }}
+                            <div class="bar-segment status-{{ .Status | ToLower }}" 
+                                 style="width: {{ printf "%.2f" (fdiv .Count $.PodStatusTotal | mulf 100.0) }}%;"
+                                 title="{{ .Status }}: {{ .Count }}"></div>
+                        {{ end }}
+                    </div>
+                    <div class="chart-legend">
+                        {{ range .PodStatus }}
+                        <div class="legend-item">
+                            <span class="legend-color status-{{ .Status | ToLower }}"></span>
+                            {{ .Status }} ({{ .Count }})
+                        </div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+
+            <div class="stat-widget">
+                <h3>Deployments ({{ .DeploymentStatus.Total }} Total)</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        <div class="bar-segment ready" 
+                             style="width: {{ printf "%.2f" (fdiv .DeploymentStatus.Ready .DeploymentStatus.Total | mulf 100.0) }}%;"
+                             title="Ready: {{ .DeploymentStatus.Ready }}"></div>
+                        <div class="bar-segment not-ready" 
+                             style="width: {{ printf "%.2f" (fdiv .DeploymentStatus.NotReady .DeploymentStatus.Total | mulf 100.0) }}%;"
+                             title="Not Ready: {{ .DeploymentStatus.NotReady }}"></div>
+                    </div>
+                    <div class="chart-legend">
+                        <div class="legend-item">
+                            <span class="legend-color" style="background: #10b981;"></span>
+                            Ready ({{ .DeploymentStatus.Ready }})
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color" style="background: #ef4444;"></span>
+                            Not Ready ({{ .DeploymentStatus.NotReady }})
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stat-widget">
+                <h3>ReplicaSets ({{ .ReplicaSetStatus.Total }} Total)</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        <div class="bar-segment ready" 
+                             style="width: {{ printf "%.2f" (fdiv .ReplicaSetStatus.Ready .ReplicaSetStatus.Total | mulf 100.0) }}%;"
+                             title="Ready: {{ .ReplicaSetStatus.Ready }}"></div>
+                        <div class="bar-segment not-ready" 
+                             style="width: {{ printf "%.2f" (fdiv .ReplicaSetStatus.NotReady .ReplicaSetStatus.Total | mulf 100.0) }}%;"
+                             title="Not Ready: {{ .ReplicaSetStatus.NotReady }}"></div>
+                    </div>
+                    <div class="chart-legend">
+                        <div class="legend-item">
+                            <span class="legend-color" style="background: #10b981;"></span>
+                            Ready ({{ .ReplicaSetStatus.Ready }})
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color" style="background: #ef4444;"></span>
+                            Not Ready ({{ .ReplicaSetStatus.NotReady }})
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stat-widget">
+                <h3>Pod Reasons (Top 10)</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        {{ $colors := ColorSlice }}
+                        {{ $totalReasons := 0 }}
+                        {{ range .PodReasonStats }}{{ $totalReasons = add $totalReasons .Count }}{{ end }}
+                        
+                        {{ range $i, $reason := .PodReasonStats }}
+                            <div class="bar-segment" 
+                                 style="width: {{ printf "%.2f" (fdiv $reason.Count $totalReasons | mulf 100.0) }}%; background-color: {{ index (ColorSlice) (mod $i 10) }}; box-shadow: 0 0 10px 0px {{ index (ColorSlice) (mod $i 10) }};"
+                                 title="{{ $reason.Reason }}: {{ $reason.Count }}"></div>
+                        {{ end }}
+                    </div>
+                    <div class="chart-legend">
+                        {{ range $i, $reason := .PodReasonStats }}
+                        <div class="legend-item">
+                            <span class="legend-color" style="background-color: {{ index (ColorSlice) (mod $i 10) }};"></span>
+                            {{ $reason.Reason }} ({{ $reason.Count }})
+                        </div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+
+            <div class="container full-width">
+                <h2>Recent Pod Restarts (Top 20)</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Cluster</th>
+                            <th>Namespace</th>
+                            <th>Pod</th>
+                            <th>Restarts</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .RecentRestarts }}
+                        <tr>
+                            <td class="cluster-name">{{ .Cluster }}</td>
+                            <td>
+                                <a href="{{ MakeURL $.QueryString "/namespace/detail" "name" .Namespace }}" class="deployment-link">
+                                    {{ .Namespace }}
+                                </a>
+                            </td>
+                            <td>
+                                <a href="{{ MakeURL $.QueryString "/pod/detail" "name" .Name "namespace" .Namespace "cluster_name" .Cluster }}" class="deployment-link">
+                                    {{ .Name }}
+                                </a>
+                            </td>
+                            <td class="reason-col">{{ .Restarts }}</td>
+                            <td class="reason-col">{{ .Reason }}</td>
+                        </tr>
+                        {{ else }}
+                        <tr><td colspan="5" class="no-data">No pod restarts found.</td></tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="container full-width">
+                <h2>Recent Warnings (Top 20 by Count)</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Last Seen</th>
+                            <th>Type</th>
+                            <th>Reason</th>
+                            <th>Count</th>
+                            <th>Message</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .RecentWarnings }}
+                        <tr class="event-warning">
+                            <td>{{ .LastSeen }}</td>
+                            <td>{{ .Type }}</td>
+                            <td>{{ .Reason }}</td>
+                            <td>{{ .Count }}</td>
+                            <td style="white-space: normal;">{{ .Message }}</td>
+                        </tr>
+                        {{ else }}
+                        <tr><td colspan="5" class="no-data">No warnings found.</td></tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+
+        </div> </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const ctx = document.getElementById('treemapChart');
+            if (ctx) {
+                const chartFontColor = '#e5e7eb';
+                const chartFontFamily = "'IBM Plex Mono', monospace";
+
+                // Data from Go
+                const rawData = [
+                    {{ range $i, $ns := .PodNamespaceStats }}
+                    {
+                        name: "{{ $ns.Name }}",
+                        value: {{ $ns.Count }},
+                        color: "{{ $ns.Color }}",
+                        detail: "{{ $ns.ErrorDetail }}" // The detail exists here
+                    },
+                    {{ end }}
+                ];
+
+                new Chart(ctx, {
+                    type: 'treemap',
+                    data: {
+                        datasets: [{
+                            label: 'Pods by Namespace',
+                            tree: rawData,
+                            key: 'value',
+                            groups: ['name'],
+                            borderWidth: 1,
+                            borderColor: '#1F2937',
+                            spacing: 1,
+                            backgroundColor: (ctx) => {
+                                if (ctx.type !== 'data') return 'transparent';
+                                const item = ctx.raw;
+                                if (!item || !item._data) return '#374151';
+                                
+                                // 1. Direct property
+                                if (item._data.color) return item._data.color;
+                                
+                                // 2. Children property (This is what actually runs)
+                                if (item._data.children && item._data.children.length > 0) {
+                                    return item._data.children[0].color;
+                                }
+                                return '#374151';
+                            },
+                            labels: {
+                                display: true,
+                                align: 'center',
+                                position: 'center',
+                                color: 'white',
+                                font: { family: chartFontFamily, size: 14, weight: 'bold' },
+                                formatter: (ctx) => {
+                                    return ctx.raw._data.name + '\n' + ctx.raw.v;
+                                }
+                            }
+                        }]
+                    },
+                    options: {
+                        maintainAspectRatio: false,
+                        onClick: (e, activeElements) => {
+                            if (activeElements.length === 0) return;
+                            const raw = activeElements[0].element.$context.raw;
+                            let nsName = null;
+                            if (raw._data && raw._data.name) {
+                                nsName = raw._data.name;
+                            } else if (raw._data && raw._data.children && raw._data.children.length > 0) {
+                                nsName = raw._data.children[0].name;
+                            }
+                            if (nsName) {
+                                const currentSearch = window.location.search;
+                                const params = new URLSearchParams(currentSearch);
+                                params.set('name', nsName); 
+                                window.location.href = '/namespace/detail?' + params.toString();
+                            }
+                        },
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    title: (items) => items[0].raw._data.name,
+                                    label: (itemContext) => {
+                                        const item = itemContext.raw;
+                                        let text = 'Pods: ' + item.v;
+                                        let detail = '';
+
+                                        // *** THIS IS THE FIX ***
+                                        // Dig into children to find the 'detail' property
+                                        if (item._data.children && item._data.children.length > 0) {
+                                             detail = item._data.children[0].detail;
+                                        } else if (item._data.detail) {
+                                             detail = item._data.detail;
+                                        }
+
+                                        if (detail) {
+                                            text += ' (' + detail + ')';
+                                        }
+                                        return text;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>

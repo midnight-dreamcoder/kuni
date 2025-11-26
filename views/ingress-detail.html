@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - K8s Universal Inspector</title>
+    <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
+</head>
+<body>
+    {{ template "sidebar" . }}
+    <main class="main-content">
+        <h1>{{ .IngressName }}</h1>
+        <div class="page-subtitle">
+            Ingress in <strong>{{ .ClusterName }}</strong> / <strong>{{ .NamespaceName }}</strong>
+        </div>
+
+        {{ if .ErrorLogs }}<div class="errors"><h2>Errors</h2><ul>{{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}</ul></div>{{ end }}
+        
+        <div class="detail-grid">
+            <div class="detail-main">
+                <div class="container">
+                    <h2>Rules</h2>
+                    <table>
+                        <thead><tr><th>Host</th><th>Path</th><th>Type</th><th>Service</th><th>Port</th></tr></thead>
+                        <tbody>
+                            {{ range .Rules }}
+                            <tr>
+                                <td>{{ .Host }}</td>
+                                <td>{{ .Path }}</td>
+                                <td>{{ .PathType }}</td>
+                                <td><a href="{{ MakeURL $.QueryString "/service/detail" "name" .ServiceName "namespace" $.NamespaceName "cluster_name" $.ClusterName }}" class="deployment-link">{{ .ServiceName }}</a></td>
+                                <td>{{ .ServicePort }}</td>
+                            </tr>
+                            {{ else }}
+                            <tr><td colspan="5" class="no-data">No rules defined.</td></tr>
+                            {{ end }}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="container">
+                    <h2>Events</h2>
+                    <table>
+                        <thead><tr><th>Last Seen</th><th>Type</th><th>Reason</th><th>Count</th><th>Message</th></tr></thead>
+                        <tbody>
+                            {{ range .Events }}
+                            <tr class="{{ if eq .Type "Warning" }}event-warning{{ else }}event-normal{{ end }}">
+                                <td>{{ .LastSeen }}</td>
+                                <td>{{ .Type }}</td>
+                                <td>{{ .Reason }}</td>
+                                <td>{{ .Count }}</td>
+                                <td style="white-space: normal;">{{ .Message }}</td>
+                            </tr>
+                            {{ else }}
+                            <tr><td colspan="5" class="no-data">No events found.</td></tr>
+                            {{ end }}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="detail-sidebar">
+                <div class="overview-box">
+                    <h2>Overview</h2>
+                    <ul class="overview-list">
+                        <li><strong>Address</strong> <span>{{ .Address }}</span></li>
+                        <li><strong>Class</strong> <span>{{ .ClassName }}</span></li>
+                        <li><strong>Age</strong> <span>{{ .Age }}</span></li>
+                    </ul>
+                </div>
+                
+                <div class="overview-box">
+                    <h2>TLS</h2>
+                    <div class="key-value-list" style="padding: 1rem 1.5rem;">
+                        {{ range .TLS }}
+                        <div><span class="data-value">{{ . }}</span></div>
+                        {{ else }}
+                        <span class="no-data">None</span>
+                        {{ end }}
+                    </div>
+                </div>
+
+                <div class="overview-box">
+                    <h2>Annotations</h2>
+                    <div class="key-value-list" style="padding: 1rem 1.5rem; max-height: 400px; overflow-y: auto;">
+                        {{ range $k, $v := .Annotations }}
+                        <div><span class="data-key">{{ $k }}</span> <span class="data-value">{{ $v }}</span></div>
+                        {{ else }}
+                        <span class="no-data">None</span>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

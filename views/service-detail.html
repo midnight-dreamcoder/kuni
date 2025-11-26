@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - K8s Universal Inspector</title>
+    <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
+</head>
+<body>
+
+    {{ template "sidebar" . }}
+
+    <main class="main-content">
+        <h1>{{ .ServiceName }}</h1>
+        <div class="page-subtitle">
+            Service in <strong>{{ .ClusterName }}</strong> / <strong>{{ .NamespaceName }}</strong>
+        </div>
+
+        {{ if .ErrorLogs }}
+        <div class="errors" style="max-width: 1600px;">
+            <h2>Errors</h2>
+            <ul>
+                {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
+            </ul>
+        </div>
+        {{ end }}
+        
+        <div class="detail-grid">
+            
+            <div class="detail-main">
+                
+                <div class="container">
+                    <h2>Ports</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Port</th>
+                                <th>Protocol</th>
+                                <th>Target Port</th>
+                                <th>Node Port</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{ range .Ports }}
+                            <tr>
+                                <td>{{ .Name }}</td>
+                                <td><span class="port-tag">{{ .Port }}</span></td>
+                                <td>{{ .Protocol }}</td>
+                                <td>{{ .TargetPort }}</td>
+                                <td>{{ if gt .NodePort 0 }}{{ .NodePort }}{{ else }}-{{ end }}</td>
+                            </tr>
+                            {{ else }}
+                            <tr><td colspan="5" class="no-data">No ports defined.</td></tr>
+                            {{ end }}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="container">
+                    <h2>Endpoints (Backing Pods)</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>IP</th>
+                                <th>Target</th>
+                                <th>Node</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{ range .Endpoints }}
+                            <tr>
+                                <td>{{ .IP }}</td>
+                                <td>{{ .TargetRef }}</td>
+                                <td>{{ .NodeName }}</td>
+                                <td>
+                                    {{ if .Ready }}
+                                    <span class="status status-ready">Ready</span>
+                                    {{ else }}
+                                    <span class="status status-notready">Not Ready</span>
+                                    {{ end }}
+                                </td>
+                            </tr>
+                            {{ else }}
+                            <tr><td colspan="4" class="no-data">No endpoints found (Service might be empty).</td></tr>
+                            {{ end }}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="container">
+                    <h2>Events</h2>
+                    <table>
+                        <thead><tr><th>Last Seen</th><th>Type</th><th>Reason</th><th>Count</th><th>Message</th></tr></thead>
+                        <tbody>
+                            {{ range .Events }}
+                            <tr class="{{ if eq .Type "Warning" }}event-warning{{ else }}event-normal{{ end }}">
+                                <td>{{ .LastSeen }}</td>
+                                <td>{{ .Type }}</td>
+                                <td>{{ .Reason }}</td>
+                                <td>{{ .Count }}</td>
+                                <td style="white-space: normal;">{{ .Message }}</td>
+                            </tr>
+                            {{ else }}
+                            <tr><td colspan="5" class="no-data">No events found.</td></tr>
+                            {{ end }}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="detail-sidebar">
+                <div class="overview-box">
+                    <h2>Overview</h2>
+                    <ul class="overview-list">
+                        <li><strong>Type</strong> <span class="strategy-tag">{{ .Type }}</span></li>
+                        <li><strong>Cluster IP</strong> <span>{{ .ClusterIP }}</span></li>
+                        <li><strong>Session Affinity</strong> <span>{{ .SessionAffinity }}</span></li>
+                        <li><strong>Age</strong> <span>{{ .Age }}</span></li>
+                    </ul>
+                </div>
+                
+                <div class="overview-box">
+                    <h2>External IPs</h2>
+                    <div class="key-value-list" style="padding: 1rem 1.5rem;">
+                        {{ range .ExternalIPs }}
+                        <div><span class="data-value" style="font-weight: 600;">{{ . }}</span></div>
+                        {{ else }}
+                        <span class="no-data" style="padding: 0.5rem 0;">None</span>
+                        {{ end }}
+                    </div>
+                </div>
+                
+                <div class="overview-box">
+                    <h2>Selectors</h2>
+                    <div class="key-value-list" style="padding: 1rem 1.5rem;">
+                        {{ range $k, $v := .Selector }}
+                        <div><span class="data-key">{{ $k }}</span> <span class="data-value">{{ $v }}</span></div>
+                        {{ else }}
+                        <span class="no-data" style="padding: 0.5rem 0;">No selectors.</span>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+</body>
+</html>

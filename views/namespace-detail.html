@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - K8s Universal Inspector</title>
+    <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
+    <style>
+        /* Per-page width override */
+        .stats-container, .container, .search-container, .errors {
+            max-width: 1600px;
+        }
+        .page-subtitle {
+            font-size: 1.1rem;
+            font-weight: 400;
+            color: #7d899e;
+            margin-top: -1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .tab-buttons {
+            display: flex;
+            border-bottom: 2px solid #3a4157;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .tab-button {
+            padding: 0.75rem 1.25rem;
+            font-size: 1rem;
+            font-weight: 700;
+            color: #888;
+            cursor: pointer;
+            border: none;
+            background: none;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+        }
+        .tab-button:hover { color: #e1e1e1; }
+        .tab-button.active { color: #00ff9c; border-bottom-color: #00ff9c; }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+        .local-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .container h2 {
+            margin: 0;
+            padding: 1.2rem 1.5rem;
+            background-color: #1a1d24;
+            border-bottom: 1px solid #3a4157;
+            font-size: 1.2rem;
+            color: #00ff9c;
+        }
+    </style>
+</head>
+<body>
+
+    {{ template "sidebar" . }}
+
+    <main class="main-content">
+        <h1>{{ .NamespaceName }}</h1>
+        <div class="page-subtitle">
+            Namespace details, found in {{ len .ClusterNames }} cluster(s).
+        </div>
+
+        {{ if .ErrorLogs }}
+        <div class="errors">
+            <h2>Errors</h2>
+            <ul>
+                {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
+            </ul>
+        </div>
+        {{ end }}
+        
+        <div class="tab-buttons">
+            {{ if .ClusterNames }}
+                {{ range .ClusterNames }}
+                    <button class="tab-button" data-target="cluster-{{ . }}">
+                        {{ . }}
+                    </button>
+                {{ end }}
+            {{ else }}
+                <div class="no-data" style="padding: 1rem 0;">No matching namespace found in selected clusters.</div>
+            {{ end }}
+        </div>
+
+        {{ range .ClusterNames }}
+            {{ $cluster := . }}
+            {{ $detail := index $.Details $cluster }}
+            
+            <div id="cluster-{{ $cluster }}" class="tab-panel">
+                
+                <div class="local-stats">
+                    <div class="stat-box green">
+                        <h3>Deployments</h3>
+                        <div class="total">{{ $detail.TotalDeployments }}</div>
+                    </div>
+                    <div class="stat-box purple">
+                        <h3>Pods</h3>
+                        <div class="total">{{ $detail.TotalPods }}</div>
+                    </div>
+                    <div class="stat-box">
+                        <h3>ReplicaSets</h3>
+                        <div class="total">{{ $detail.TotalReplicaSets }}</div>
+                    </div>
+                </div>
+
+                <div class="container" style="margin-bottom: 1.5rem;">
+                    <h2>Deployments</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Ready</th>
+                                <th>Images</th>
+                                <th>Strategy</th>
+                                <th>Age</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{ range $detail.Deployments }}
+                            <tr>
+                                <td>
+                                    <a href="{{ MakeURL $.QueryString "/deployment/detail" "name" .Name }}" class="deployment-link">
+                                        {{ .Name }}
+                                    </a>
+                                </td>
+                                <td>{{ .Ready }}</td>
+                                <td class="col-tags">
+                                    {{ range .Images }} <span class="image-tag">{{ . }}</span> {{ end }}
+                                </td>
+                                <td><span class="strategy-tag">{{ .Strategy }}</span></td>
+                                <td>{{ .Age }}</td>
+                            </tr>
+                            {{ else }}
+                            <tr><td colspan="5" class="no-data">No deployments found.</td></tr>
+                            {{ end }}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="container" style="margin-bottom: 1.5rem;">
+                    <h2>Pods</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Ready</th>
+                                <th>Status</th>
+                                <th>Reason</th>
+                                <th>Restarts</th>
+                                <th>Pod IP</th>
+                                <th>Node</th>
+                                <th>Age</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{ range $detail.Pods }}
+                            <tr>
+                                <td>
+                                    <a href="{{ MakeURL $.QueryString "/pod/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">
+                                        {{ .Name }}
+                                    </a>
+                                </td>
+                                <td>{{ .Ready }}</td>
+                                <td><span class="status status-{{ .Status | ToLower }}">{{ .Status }}</span></td>
+                                <td class="reason-col">{{ .Reason }}</td>
+                                <td>{{ .Restarts }}</td>
+                                <td>{{ .PodIP }}</td>
+                                <td>{{ .Node }}</td>
+                                <td>{{ .Age }}</td>
+                            </tr>
+                            {{ else }}
+                            <tr><td colspan="8" class="no-data">No pods found.</td></tr>
+                            {{ end }}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="container">
+                    <h2>ReplicaSets</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Replicas (R/D/C)</th>
+                                <th>Owned By</th>
+                                <th>Age</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{ range $detail.ReplicaSets }}
+                            <tr>
+                                <td>
+                                    <a href="/search?q={{ .Name | urlquery }}" class="deployment-link">
+                                        {{ .Name }}
+                                    </a>
+                                </td>
+                                <td>{{ .Ready }}</td>
+                                <td>{{ .Owner }}</td>
+                                <td>{{ .Age }}</td>
+                            </tr>
+                            {{ else }}
+                            <tr><td colspan="4" class="no-data">No replicasets found.</td></tr>
+                            {{ end }}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        {{ end }}
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const tabButtons = document.querySelectorAll('.tab-button');
+            const tabPanels = document.querySelectorAll('.tab-panel');
+
+            function switchTab(targetId) {
+                tabPanels.forEach(panel => panel.classList.remove('active'));
+                tabButtons.forEach(button => button.classList.remove('active'));
+
+                const targetPanel = document.getElementById(targetId);
+                if (targetPanel) {
+                    targetPanel.classList.add('active');
+                }
+                const targetButton = document.querySelector(`.tab-button[data-target="${targetId}"]`);
+                if (targetButton) {
+                    targetButton.classList.add('active');
+                }
+            }
+
+            tabButtons.forEach(button => {
+                button.addEventListener('click', () => switchTab(button.dataset.target));
+            });
+
+            // Activate the first tab by default
+            const firstButton = document.querySelector('.tab-button');
+            if (firstButton) {
+                switchTab(firstButton.dataset.target);
+            }
+        });
+
+        // Auto-refresh
+        // setTimeout(() => {
+        //     location.reload();
+        // }, 5000);
+    </script>
+</body>
+</html>

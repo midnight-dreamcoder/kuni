@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - K8s Universal Inspector</title>
+    <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
+    </head>
+<body>
+
+    {{ template "sidebar" . }}
+
+    <main class="main-content">
+        <h1>{{ .Cluster.Name }}</h1>
+        <div class="page-subtitle">
+            Cluster Overview
+        </div>
+
+        {{ if .ErrorLogs }}
+        <div class="errors" style="max-width: 1600px;">
+            <h2>Errors</h2>
+            <ul>
+                {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
+            </ul>
+        </div>
+        {{ end }}
+        
+        <div class="detail-grid">
+            
+            <div class="detail-main">
+                
+                <div class="container">
+                    <h2>Nodes ({{ len .Nodes }})</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Status</th>
+                                <th>Role</th>
+                                <th>Kubelet</th>
+                                <th>CPU (Alloc)</th>
+                                <th>Mem (Alloc)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{ range .Nodes }}
+                            <tr>
+                                <td>
+                                    <a href="{{ MakeURL $.QueryString "/node/detail" "name" .Name "cluster_name" .Cluster }}" class="deployment-link">
+                                        {{ .Name }}
+                                    </a>
+                                </td>
+                                <td><span class="status status-{{ .Status | ToLower }}">{{ .Status }}</span></td>
+                                <td><span class="cluster-tag">{{ .Role }}</span></td>
+                                <td>{{ .Kubelet }}</td>
+                                <td>{{ .CpuAlloc }}</td>
+                                <td>{{ .MemAlloc }}</td>
+                            </tr>
+                            {{ else }}
+                            <tr><td colspan="6" class="no-data">No nodes found for this cluster.</td></tr>
+                            {{ end }}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="container">
+                    <h2>Node Events</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Last Seen</th>
+                                <th>Type</th>
+                                <th>Reason</th>
+                                <th>Count</th>
+                                <th>Message</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{ range .Events }}
+                            <tr class="{{ if eq .Type "Warning" }}event-warning{{ else }}event-normal{{ end }}">
+                                <td>{{ .LastSeen }}</td>
+                                <td>{{ .Type }}</td>
+                                <td>{{ .Reason }}</td>
+                                <td>{{ .Count }}</td>
+                                <td style="white-space: normal;">{{ .Message }}</td>
+                            </tr>
+                            {{ else }}
+                            <tr><td colspan="5" class="no-data">No events found for this node.</td></tr>
+                            {{ end }}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="detail-sidebar">
+                
+                <div class="overview-box">
+                    <h2>Cluster Info</h2>
+                    <ul class="overview-list">
+                        <li><strong>Status</strong> <span class="status status-{{ .Cluster.Status | ToLower }}">{{ .Cluster.Status }}</span></li>
+                        <li><strong>Version</strong> <span>{{ .Cluster.Version }}</span></li>
+                        <li><strong>Latency</strong> <span>{{ .Cluster.Latency }}</span></li>
+                        <li><strong>API Server</strong> <span style="word-break: break-all;">{{ .Cluster.ApiServer }}</span></li>
+                    </ul>
+                </div>
+                
+                <div class="stat-widget">
+                    <h3>Cluster Resources</h3>
+                    <div class="chart-container">
+                        
+                        <h4 style="color: #9ca3af; font-weight: 500; font-family: 'IBM Plex Mono', monospace;">CPU (Total: {{ .Resources.CapacityCpu }})</h4>
+                        
+                        <div class="stacked-bar-container">
+                            <div class="bar-segment allocatable" 
+                                 style="width: {{ printf "%.2f" .Resources.AllocatableCpuPercent }}%;"
+                                 title="Allocatable: {{ .Resources.AllocatableCpu }}"></div>
+                        </div>
+                        <div class="chart-legend" style="justify-content: left; margin-bottom: 1.5rem;">
+                            <div class="legend-item">
+                                <span class="legend-color" style="background-color: #22d3ee;"></span>
+                                Allocatable
+                                <span class="legend-percent">{{ printf "%.1f" .Resources.AllocatableCpuPercent }}%</span>
+                            </div>
+                        </div>
+
+                        <div class="stacked-bar-container">
+                            <div class="bar-segment usage" 
+                                 style="width: {{ printf "%.2f" .Resources.UsageCpuPercent }}%;"
+                                 title="Usage: {{ .Resources.UsageCpu }}"></div>
+                        </div>
+                        <div class="chart-legend" style="justify-content: left; margin-bottom: 1.5rem;">
+                            <div class="legend-item">
+                                <span class="legend-color" style="background-color: #f59e0b;"></span>
+                                Real-Time Usage
+                                <span class="legend-percent">{{ printf "%.1f" .Resources.UsageCpuPercent }}%</span>
+                            </div>
+                        </div>
+
+                        <h4 style="color: #9ca3af; font-weight: 500; font-family: 'IBM Plex Mono', monospace; margin-top: 2rem;">Memory (Total: {{ .Resources.CapacityMem }})</h4>
+
+                        <div class="stacked-bar-container">
+                            <div class="bar-segment allocatable" 
+                                 style="width: {{ printf "%.2f" .Resources.AllocatableMemPercent }}%;"
+                                 title="Allocatable: {{ .Resources.AllocatableMem }}"></div>
+                        </div>
+                        <div class="chart-legend" style="justify-content: left; margin-bottom: 1.5rem;">
+                            <div class="legend-item">
+                                <span class="legend-color" style="background-color: #22d3ee;"></span>
+                                Allocatable
+                                <span class="legend-percent">{{ printf "%.1f" .Resources.AllocatableMemPercent }}%</span>
+                            </div>
+                        </div>
+                        
+                        <div class="stacked-bar-container">
+                            <div class="bar-segment usage" 
+                                 style="width: {{ printf "%.2f" .Resources.UsageMemPercent }}%;"
+                                 title="Usage: {{ .Resources.UsageMem }}"></div>
+                        </div>
+                        <div class="chart-legend" style="justify-content: left;">
+                            <div class="legend-item">
+                                <span class="legend-color" style="background-color: #f59e0b;"></span>
+                                Real-Time Usage
+                                <span class="legend-percent">{{ printf "%.1f" .Resources.UsageMemPercent }}%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="overview-box">
+                    <h2>Namespaces ({{ len .Namespaces }})</h2>
+                    <div class="tag-list" style="padding: 1.5rem;">
+                        {{ range .Namespaces }}
+                            <a href="{{ MakeURL $.QueryString "/namespace/detail" "name" . }}" class="tag-link">
+                                <span class="namespace-tag">{{ . }}</span>
+                            </a>
+                        {{ else }}
+                            <span class="no-data" style="padding: 0;">No namespaces found.</span>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+</body>
+</html>

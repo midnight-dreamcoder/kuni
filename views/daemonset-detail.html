@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - K8s Universal Inspector</title>
+    <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
+    <style>
+        .page-grid {
+            max-width: 1600px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+        .full-width {
+            grid-column: 1 / -1;
+        }
+        .page-subtitle {
+            font-size: 1.1rem;
+            font-weight: 400;
+            color: #7d899e;
+            margin-top: -1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .overview-box {
+            background: #1F2937;
+            border-radius: 8px;
+            border: 1px solid #374151;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+            overflow: hidden;
+        }
+        .overview-box h2 {
+            margin: 0;
+            padding: 1rem 1.5rem;
+            background-color: #111827;
+            border-bottom: 1px solid #374151;
+            font-size: 1.2rem;
+            color: #e5e7eb;
+        }
+        .overview-list { list-style: none; padding: 1rem 1.5rem; margin: 0; }
+        .overview-list li { display: flex; padding: 0.75rem 0; border-bottom: 1px dashed #374151; }
+        .overview-list li:last-child { border-bottom: none; }
+        .overview-list li strong { width: 150px; flex-shrink: 0; color: #9ca3af; }
+        .overview-list li span { word-break: break-all; }
+        .event-normal { color: #22d3ee; }
+        .event-warning { color: #f59e0b; font-weight: 600; }
+    </style>
+</head>
+<body>
+
+    {{ template "sidebar" . }}
+
+    <main class="main-content">
+        <h1>{{ .DaemonSetName }}</h1>
+        <div class="page-subtitle">
+            DaemonSet in <strong>{{ .ClusterName }}</strong> / <strong>{{ .NamespaceName }}</strong>
+        </div>
+
+        {{ if .ErrorLogs }}
+        <div class="errors" style="max-width: 1600px;">
+            <h2>Errors</h2>
+            <ul>
+                {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
+            </ul>
+        </div>
+        {{ end }}
+        
+        <div class="page-grid">
+            
+            <div class="overview-box full-width">
+                <h2>Overview</h2>
+                <ul class="overview-list">
+                    <li><strong>Status</strong> <span>{{ .Overview.Status }} (Ready/Desired)</span></li>
+                    <li><strong>Node Selector</strong> <span class="image-tag">{{ .Overview.NodeSelector }}</span></li>
+                    <li><strong>Selector</strong> <span class="image-tag">{{ .Overview.Selector }}</span></li>
+                    <li><strong>Age</strong> <span>{{ .Overview.Age }}</span></li>
+                </ul>
+            </div>
+
+            <div class="container full-width">
+                <h2>Managed Pods ({{ len .Pods }})</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Ready</th>
+                            <th>Status</th>
+                            <th>Reason</th>
+                            <th>Restarts</th>
+                            <th>Pod IP</th>
+                            <th>Node</th>
+                            <th>Age</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Pods }}
+                        <tr>
+                            <td>
+                                <a href="{{ MakeURL $.QueryString "/pod/detail" "name" .Name "namespace" .Namespace "cluster_name" .Cluster }}" class="deployment-link">
+                                    {{ .Name }}
+                                </a>
+                            </td>
+                            <td>{{ .Ready }}</td>
+                            <td><span class="status status-{{ .Status | ToLower }}">{{ .Status }}</span></td>
+                            <td class="reason-col">{{ .Reason }}</td>
+                            <td>{{ .Restarts }}</td>
+                            <td>{{ .PodIP }}</td>
+                            <td>{{ .Node }}</td>
+                            <td>{{ .Age }}</td>
+                        </tr>
+                        {{ else }}
+                        <tr><td colspan="8" class="no-data">No pods found for this daemonset.</td></tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="container full-width">
+                <h2>Events</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Last Seen</th>
+                            <th>Type</th>
+                            <th>Reason</th>
+                            <th>Count</th>
+                            <th>Message</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Events }}
+                        <tr class="{{ if eq .Type "Warning" }}event-warning{{ else }}event-normal{{ end }}">
+                            <td>{{ .LastSeen }}</td>
+                            <td>{{ .Type }}</td>
+                            <td>{{ .Reason }}</td>
+                            <td>{{ .Count }}</td>
+                            <td style="white-space: normal;">{{ .Message }}</td>
+                        </tr>
+                        {{ else }}
+                        <tr><td colspan="5" class="no-data">No events found for this daemonset.</td></tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // Auto-refresh
+        setTimeout(() => {
+            location.reload();
+        }, 5000);
+    </script>
+</body>
+</html>

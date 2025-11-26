@@ -1,0 +1,148 @@
+{{ define "sidebar" }}
+<nav class="sidebar">
+    <div class="sidebar-header">
+        <span class="header-main">K8s</span>
+        <span class="header-sub">Universal Inspector</span>
+    </div>
+    
+    <div class="sidebar-nav">
+        
+        <div class="nav-section">
+            <div class="nav-category" onclick="toggleNav(this)">General</div>
+            <ul class="nav-group">
+                <li><a href="/search" {{ if eq .ActivePage "search" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">🔍</span>Search
+                </a></li>
+                <li>
+                    <a href="/clusters{{ .QueryString }}" {{ if eq .ActivePage "clusters" }}class="active"{{ end }}>
+                        <span class="sidebar-icon">🖥️</span>
+                        Clusters 
+                        {{- if gt .SelectedClusterCount 0 }}
+                            <span class="sidebar-count">({{ .SelectedClusterCount }})</span>
+                        {{- end }}
+                    </a>
+                    {{- if gt .SelectedClusterCount 0 }}
+                        <a href="/clusters" class="sidebar-clear-filter">Clear Selection</a>
+                    {{- end }}
+                </li>
+                <li><a href="/overview{{ .QueryString }}" {{ if eq .ActivePage "overview" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">🏠</span>Overview
+                </a></li>
+                <li><a href="/events{{ .QueryString }}" {{ if eq .ActivePage "events" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">🔔</span>Events
+                </a></li>
+            </ul>
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-category" onclick="toggleNav(this)">Infrastructure</div>
+            <ul class="nav-group">
+                <li><a href="/nodes{{ .QueryString }}" {{ if eq .ActivePage "nodes" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">🖧</span>Nodes
+                </a></li>
+                <li><a href="/namespaces{{ .QueryString }}" {{ if eq .ActivePage "namespaces" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">📦</span>Namespaces
+                </a></li>
+            </ul>
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-category" onclick="toggleNav(this)">Workloads</div>
+            <ul class="nav-group">
+                <li><a href="/workload{{ .QueryString }}" {{ if eq .ActivePage "workload" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">📊</span>Overview
+                </a></li>
+                <li><a href="/deployments{{ .QueryString }}" {{ if eq .ActivePage "deployments" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">🚀</span>Deployments
+                </a></li>
+                <li><a href="/pods{{ .QueryString }}" {{ if eq .ActivePage "pods" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">🎛️</span>Pods
+                </a></li>
+                <li><a href="/replicasets{{ .QueryString }}" {{ if eq .ActivePage "replicasets" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">🔄</span>ReplicaSets
+                </a></li>
+                <li><a href="/daemonsets{{ .QueryString }}" {{ if eq .ActivePage "daemonsets" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">🛡️</span>DaemonSets
+                </a></li>
+                <li><a href="/statefulsets{{ .QueryString }}" {{ if eq .ActivePage "statefulsets" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">💾</span>StatefulSets
+                </a></li>
+            </ul>
+        </div>
+        
+        <div class="nav-section">
+            <div class="nav-category" onclick="toggleNav(this)">Network</div>
+            <ul class="nav-group">
+                <li><a href="/services{{ .QueryString }}" {{ if eq .ActivePage "services" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">🌐</span>Services
+                </a></li>
+                <li><a href="/ingresses{{ .QueryString }}" {{ if eq .ActivePage "ingresses" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">🚪</span>Ingresses
+                </a></li>
+            </ul>
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-category" onclick="toggleNav(this)">Config & Storage</div>
+            <ul class="nav-group">
+                <li><a href="/configmaps{{ .QueryString }}" {{ if eq .ActivePage "configmaps" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">📜</span>ConfigMaps
+                </a></li>
+                <li><a href="/secrets{{ .QueryString }}" {{ if eq .ActivePage "secrets" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">🔒</span>Secrets
+                </a></li>
+                <li><a href="/serviceaccounts{{ .QueryString }}" {{ if eq .ActivePage "serviceaccounts" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">🔑</span>Service Accounts
+                </a></li>
+                <li><a href="/pvcs{{ .QueryString }}" {{ if eq .ActivePage "pvcs" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">🗂️</span>PVCs
+                </a></li>
+
+            </ul>
+        </div>
+        <div class="nav-section">
+            <div class="nav-category" onclick="toggleNav(this)">Extensions</div>
+            <ul class="nav-group">
+            <li><a href="/crds{{ .QueryString }}" {{ if eq .ActivePage "crds" }}class="active"{{ end }}>
+                <span class="sidebar-icon">🧩</span>Custom Resources
+            </a></li>
+        </div>
+    </div>
+
+    <div class="sidebar-footer">
+        v0.0.1-dev-1
+    </div>
+
+    <script>
+        function toggleNav(header) {
+            const section = header.parentElement;
+            // If it's already open, just close it
+            if (section.classList.contains('open')) {
+                section.classList.remove('open');
+                return;
+            }
+
+            // Close all other sections (Accordion behavior)
+            document.querySelectorAll('.nav-section').forEach(s => s.classList.remove('open'));
+
+            // Open this one
+            section.classList.add('open');
+        }
+
+        // Auto-open the section that contains the active link
+        document.addEventListener("DOMContentLoaded", function() {
+            const activeLink = document.querySelector('.sidebar-nav a.active');
+            if (activeLink) {
+                const section = activeLink.closest('.nav-section');
+                if (section) {
+                    section.classList.add('open');
+                }
+            } else {
+                // Default to first section if nothing active (e.g. home)
+                const firstSection = document.querySelector('.nav-section');
+                if (firstSection) firstSection.classList.add('open');
+            }
+        });
+    </script>
+</nav>
+{{ end }}

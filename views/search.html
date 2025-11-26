@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - K8s Universal Inspector</title>
+    <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
+    <style>
+        .search-page-container {
+            max-width: 900px;
+            margin: 2rem auto 0 auto;
+        }
+        .search-bar-lg {
+            width: 100%;
+            padding: 1.25rem;
+            font-size: 1.5rem;
+            border: 1px solid #374151;
+            background: #1F2937;
+            color: #e5e7eb;
+            border-radius: 8px;
+            box-sizing: border-box;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            font-family: 'IBM Plex Mono', monospace;
+            caret-color: #22d3ee;
+        }
+        .search-bar-lg:focus {
+            outline: none;
+            border-color: #22d3ee;
+            box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.1);
+        }
+        .search-bar-lg.regex-error {
+            border-color: #f87171;
+            background-color: rgba(239, 68, 68, 0.1);
+        }
+        .search-submit {
+            display: block;
+            width: 100%;
+            padding: 1rem;
+            margin-top: 1rem;
+            background-color: #22d3ee;
+            color: #111827;
+            border: none;
+            font-size: 1.1rem;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .search-results-container {
+            margin-top: 2.5rem;
+        }
+        .result-item {
+            background: #1F2937;
+            border: 1px solid #374151;
+            border-radius: 8px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+            margin-bottom: 1rem;
+            padding: 1.5rem;
+            display: flex;
+            align-items: center;
+        }
+        .result-icon {
+            font-size: 1.5rem;
+            margin-right: 1.5rem;
+            width: 40px;
+            text-align: center;
+        }
+        .result-info {
+            flex: 1;
+        }
+        .result-info a {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #22d3ee;
+            text-decoration: none;
+        }
+        .result-info a:hover {
+            text-decoration: underline;
+        }
+        .result-location {
+            font-size: 0.9rem;
+            color: #9ca3af;
+            margin: 0.25rem 0;
+        }
+        .result-match {
+            font-size: 0.9rem;
+            color: #f59e0b;
+            background-color: rgba(245, 158, 11, 0.1);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            display: inline-block;
+            word-break: break-all;
+        }
+        .result-match + .result-match {
+            margin-top: 4px;
+        }
+        .search-notice {
+            text-align: center;
+            color: #9ca3af;
+            padding: 2rem;
+            font-size: 1.1rem;
+        }
+        .result-extra {
+            margin-left: 1.5rem;
+            text-align: right;
+            min-width: 120px;
+        }
+        .info-tag {
+            display: block;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.9rem;
+            color: #9ca3af;
+            margin-top: 0.25rem;
+        }
+        .result-extra .status {
+            padding: 0.2rem 0.5rem;
+            font-size: 0.75rem;
+        }
+    </style>
+</head>
+<body>
+
+    {{ template "sidebar" . }}
+
+    <main class="main-content">
+        <h1>{{ .Title }}</h1>
+
+        <div class="search-page-container">
+            <form method="GET" action="/search">
+                <input type="text" name="q" class="search-bar-lg {{ if .Error }}regex-error{{ end }}" 
+                       placeholder="Search all resources (regex supported)..." value="{{ .Query }}">
+                <button type="submit" class="search-submit">Search</button>
+            </form>
+
+            <div class="search-results-container">
+                {{ if .Error }}
+                    <div class="errors">
+                        <h2>Invalid Regex</h2>
+                        <p style="padding: 1rem 1.5rem;">{{ .Error }}</p>
+                    </div>
+                {{ else if .Query }}
+                    {{ if .Results }}
+                        <h3 style="color: #9ca3af; font-weight: 500;">Found {{ len .Results }} results for "<strong style="color: #e5e7eb;">{{ .Query }}</strong>"</h3>
+                        {{ range .Results }}
+                        <div class="result-item">
+                            <div class="result-icon">
+                                {{ if eq .Type "Cluster" }}🖥️
+                                {{ else if eq .Type "Namespace" }}📦
+                                {{ else if eq .Type "Deployment" }}🚀
+                                {{ else if eq .Type "Pod" }}🎛️
+                                {{ else if eq .Type "ReplicaSet" }}🔄
+                                {{ else if eq .Type "DaemonSet" }}🛡️
+                                {{ else if eq .Type "StatefulSet" }}💾
+                                {{ else if eq .Type "Service" }}🌐
+                                {{ else if eq .Type "ServiceAccount" }}🔑
+                                {{ else if eq .Type "ConfigMap" }}📜
+                                {{ else if eq .Type "Secret" }}🔒
+                                {{ else if eq .Type "PersistentVolume" }}💽
+                                {{ end }}
+                            </div>
+                            <div class="result-info">
+                                <a href="{{ .URL }}">{{ .Name }}</a>
+                                <div class="result-location">
+                                    {{ .Type }} on <strong>{{ .Cluster }}</strong>
+                                    {{ if .Namespace }} in <strong>{{ .Namespace }}</strong>{{ end }}
+                                    {{ if .Node }} on <strong>{{ .Node }}</strong>{{ end }}
+                                </div>
+                                {{ range .Matches }}
+                                <div class="result-match" title="{{ .Field }}">
+                                    Matched {{ .Field }}: <strong>{{ .Value }}</strong>
+                                </div>
+                                {{ end }}
+                            </div>
+                            
+                            <div class="result-extra">
+                                {{ if .Status }}
+                                    <span class="status status-{{ .Status | ToLower }}">{{ .Status }}</span>
+                                {{ end }}
+                                {{ if .Info }}
+                                    <span class="info-tag">{{ .Info }}</span>
+                                {{ end }}
+                            </div>
+                        </div>
+                        {{ end }}
+                    {{ else }}
+                        <div class="search-notice">
+                            No results found for "{{ .Query }}".
+                        </div>
+                    {{ end }}
+                {{ else }}
+                    <div class="search-notice">
+                        Enter a query to search all clusters and resources.
+                    </div>
+                {{ end }}
+            </div>
+        </div>
+
+    </main>
+</body>
+</html>
