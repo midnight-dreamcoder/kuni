@@ -4,6 +4,8 @@
 ![Go Version](https://img.shields.io/badge/go-1.20%2B-cyan)
 ![Status](https://img.shields.io/badge/status-active-green)
 
+<img alt="clusters.PNG" src="https://github.com/midnight-dreamcoder/kuni/blob/main/public/clusters.PNG?raw=true" data-hpc="true" class="Box-sc-62in7e-0 eLrlvS">
+
 **K8s Universal Inspector** is a high-performance, read-only multi-cluster dashboard designed for SREs and Developers who need to visualize, audit, and troubleshoot Kubernetes resources across dozens of clusters simultaneously.
 
 Unlike standard tools that focus on a single cluster context, this tool aggregates data from multiple `kubeconfig` files, providing a unified view of your entire infrastructure.
