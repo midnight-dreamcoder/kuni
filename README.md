@@ -47,7 +47,7 @@ Unlike standard tools that focus on a single cluster context, this tool aggregat
 1.  **Clone the repository:**
     ```bash
     git clone https://github.com/midnight-dreamcoder/kuni.git
-    cd k8s-universal-inspector
+    cd kuni
     ```
 
 2.  **Install dependencies:**
