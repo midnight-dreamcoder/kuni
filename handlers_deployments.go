@@ -9,8 +9,9 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	// v1 import removed
+	"k8s.io/client-go/kubernetes"
 )
 
 // handleGetDeployments lists and aggregates all deployments from all clusters
@@ -21,6 +22,8 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
 		}
+
+		// [UPDATED] Injected CurrentConfig.IsAdmin
 		base := PageBase{
 			Title:                "Deployments",
 			ActivePage:           "deployments",
@@ -29,14 +32,15 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin, 
 		}
+
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
 		deploymentAggregator := make(map[string]*AggregatedDeploymentView)
 		clusterDistribution := make(map[string]int)
 		
-		// Structure to track namespace health for the Treemap
 		type nsHealth struct {
 			Total     int
 			Unhealthy int
@@ -57,7 +61,6 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				deploymentList, err := client.Clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
-				cancel()
 				if err != nil {
 					mutex.Lock()
 					base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Cluster: %s | Error: Failed to list deployments (%v)", client.ContextName, err))
@@ -69,13 +72,11 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 				for _, dep := range deploymentList.Items {
 					clusterDistribution[client.ContextName]++
 					
-					// Namespace Health Logic
 					if _, ok := namespaceHealthMap[dep.Namespace]; !ok {
 						namespaceHealthMap[dep.Namespace] = &nsHealth{}
 					}
 					namespaceHealthMap[dep.Namespace].Total++
 					
-					// Check health
 					var desiredReplicas int32 = 1
 					if dep.Spec.Replicas != nil {
 						desiredReplicas = *dep.Spec.Replicas
@@ -84,7 +85,6 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 						namespaceHealthMap[dep.Namespace].Unhealthy++
 					}
 
-					// Aggregation Logic
 					entry, ok := deploymentAggregator[dep.Name]
 					if !ok {
 						entry = &AggregatedDeploymentView{
@@ -122,13 +122,12 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 		
 		var clusterStats []ClusterStat; for n, c := range clusterDistribution { clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c}) }; sort.Slice(clusterStats, func(i, j int) bool { return clusterStats[i].Name < clusterStats[j].Name })
 		
-		// --- Process Namespace Stats (Base List) ---
 		var namespaceStats []NamespaceStat
 		for n, h := range namespaceHealthMap {
-			color := "#10b981" // Green
+			color := "#10b981" 
 			detail := ""
 			if h.Unhealthy > 0 {
-				color = "#f59e0b" // Orange
+				color = "#f59e0b"
 				detail = fmt.Sprintf("%d Unhealthy", h.Unhealthy)
 			}
 			namespaceStats = append(namespaceStats, NamespaceStat{
@@ -142,24 +141,17 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 			return namespaceStats[i].Count > namespaceStats[j].Count
 		})
 
-		// --- 1. Prepare Bar Chart Stats (Top 10 + Others) ---
-		// We clone the slice logic so we don't affect the Treemap data
 		var namespaceBarStats []NamespaceStat
-		// Copy all elements first
 		namespaceBarStats = append(namespaceBarStats, namespaceStats...)
-		
 		if len(namespaceBarStats) > 10 {
 			var otherSum int
 			for _, ns := range namespaceBarStats[10:] {
 				otherSum += ns.Count
 			}
-			// Slice to top 10
 			namespaceBarStats = namespaceBarStats[:10]
-			// Append Others
 			namespaceBarStats = append(namespaceBarStats, NamespaceStat{Name: "Others", Count: otherSum})
 		}
 
-		// --- 2. Prepare Treemap Stats (Limit to Top 50) ---
 		if len(namespaceStats) > 50 {
 			namespaceStats = namespaceStats[:50]
 		}
@@ -169,8 +161,8 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 			Deployments:            finalDeployments,
 			TotalUniqueDeployments: len(deploymentAggregator),
 			ClusterStats:           clusterStats,
-			NamespaceStats:         namespaceStats,    // For Treemap (Top 50)
-			NamespaceBarStats:      namespaceBarStats, // For Bar Chart (Top 10 + Others)
+			NamespaceStats:         namespaceStats,    
+			NamespaceBarStats:      namespaceBarStats, 
 		}
 		return c.Render(200, "deployments.html", data)
 	}
@@ -185,6 +177,8 @@ func handleGetDeploymentDetail(pattern string) echo.HandlerFunc {
 		if deploymentName == "" {
 			return c.String(400, "Missing required query parameter: name")
 		}
+
+		// [UPDATED] Injected CurrentConfig.IsAdmin
 		base := PageBase{
 			Title:                deploymentName,
 			ActivePage:           "deployments",
@@ -193,7 +187,9 @@ func handleGetDeploymentDetail(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			IsSearchPage:         false,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
 		filesToProcess, err := getFilesToProcess(c, pattern)
 		if err != nil {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Error finding kubeconfig files: %v", err))
@@ -245,9 +241,22 @@ func handleGetDeploymentDetail(pattern string) echo.HandlerFunc {
 					for _, cond := range dep.Status.Conditions {
 						overview.Conditions = append(overview.Conditions, fmt.Sprintf("%s: %s (%s)", cond.Type, cond.Status, cond.Reason))
 					}
+					
+					// 1. Rollout Status - Uses strictly kubectl logic now
+					overview.RolloutStatus = getDeploymentRolloutStatus(&dep)
+
+					// 2. History & Pods
 					selector, selErr := metav1.LabelSelectorAsSelector(dep.Spec.Selector)
 					if selErr == nil {
 						overview.Selector = selector.String()
+						
+						// History
+						hist, histErr := getDeploymentRolloutHistory(ctx, client.Clientset, &dep)
+						if histErr == nil {
+							overview.RolloutHistory = hist
+						}
+
+						// Pods
 						podList, podErr := client.Clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector.String()})
 						if podErr == nil {
 							for _, pod := range podList.Items {
@@ -314,6 +323,115 @@ func handleGetDeploymentDetail(pattern string) echo.HandlerFunc {
 	}
 }
 
+// --- HELPER: Mimic 'kubectl rollout status' EXACT LOGIC ---
+func getDeploymentRolloutStatus(dep *appsv1.Deployment) RolloutStatusInfo {
+	replicas := int32(1)
+	if dep.Spec.Replicas != nil {
+		replicas = *dep.Spec.Replicas
+	}
+
+	// 0. CHECK FOR FAILURE (Critical Step Missing Before)
+	for _, c := range dep.Status.Conditions {
+		if c.Type == appsv1.DeploymentProgressing && c.Status == "False" && c.Reason == "ProgressDeadlineExceeded" {
+			return RolloutStatusInfo{
+				Message:    fmt.Sprintf("Deployment has failed: %s", c.Message),
+				IsComplete: true, // Stop the spinner, it's done (badly)
+			}
+		}
+	}
+
+	// 1. Check if the controller has seen the latest generation
+	if dep.Generation > dep.Status.ObservedGeneration {
+		return RolloutStatusInfo{Message: "Waiting for deployment spec update to be observed...", IsComplete: false}
+	}
+
+	// 2. Check if enough new replicas have been updated
+	if dep.Status.UpdatedReplicas < replicas {
+		return RolloutStatusInfo{
+			Message:    fmt.Sprintf("Waiting for rollout to finish: %d out of %d new replicas have been updated...", dep.Status.UpdatedReplicas, replicas),
+			IsComplete: false,
+		}
+	}
+
+	// 3. Check if any old replicas are hanging around (Total > Updated)
+	if dep.Status.Replicas > dep.Status.UpdatedReplicas {
+		oldReplicas := dep.Status.Replicas - dep.Status.UpdatedReplicas
+		return RolloutStatusInfo{
+			Message:    fmt.Sprintf("Waiting for rollout to finish: %d old replicas are pending termination...", oldReplicas),
+			IsComplete: false,
+		}
+	}
+
+	// 4. Check if enough replicas are available
+	if dep.Status.AvailableReplicas < replicas {
+		return RolloutStatusInfo{
+			Message:    fmt.Sprintf("Waiting for rollout to finish: %d of %d updated replicas are available...", dep.Status.AvailableReplicas, replicas),
+			IsComplete: false,
+		}
+	}
+
+	// If all checks pass, we are done.
+	return RolloutStatusInfo{Message: "Successfully rolled out", IsComplete: true}
+}
+
+// --- HELPER: Mimic 'kubectl rollout history' ---
+func getDeploymentRolloutHistory(ctx context.Context, client *kubernetes.Clientset, dep *appsv1.Deployment) ([]RolloutHistoryInfo, error) {
+	selector, err := metav1.LabelSelectorAsSelector(dep.Spec.Selector)
+	if err != nil {
+		return nil, err
+	}
+
+	rsList, err := client.AppsV1().ReplicaSets(dep.Namespace).List(ctx, metav1.ListOptions{LabelSelector: selector.String()})
+	if err != nil {
+		return nil, err
+	}
+
+	var history []RolloutHistoryInfo
+
+	for _, rs := range rsList.Items {
+		// Manual Owner Check (Robust)
+		isOwned := false
+		for _, ref := range rs.OwnerReferences {
+			if ref.Kind == "Deployment" && ref.Name == dep.Name {
+				isOwned = true
+				break
+			}
+		}
+		if !isOwned {
+			continue
+		}
+
+		revStr := rs.Annotations["deployment.kubernetes.io/revision"]
+		var rev int64
+		if revStr != "" {
+			fmt.Sscanf(revStr, "%d", &rev)
+		}
+
+		cause := rs.Annotations["kubernetes.io/change-cause"]
+		if cause == "" {
+			cause = "<none>"
+		}
+		
+		var images []string
+		for _, c := range rs.Spec.Template.Spec.Containers {
+			images = append(images, c.Image)
+		}
+
+		history = append(history, RolloutHistoryInfo{
+			Revision:    rev,
+			ChangeCause: cause,
+			Age:         formatAge(rs.CreationTimestamp),
+			Images:      images,
+		})
+	}
+
+	sort.Slice(history, func(i, j int) bool {
+		return history[i].Revision > history[j].Revision
+	})
+
+	return history, nil
+}
+
 // handleGetReplicaSets lists all replicasets
 func handleGetReplicaSets(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -322,15 +440,19 @@ func handleGetReplicaSets(pattern string) echo.HandlerFunc {
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
 		}
+
+		// [UPDATED] Injected CurrentConfig.IsAdmin
 		base := PageBase{
 			Title:                "All ReplicaSets",
 			ActivePage:           "replicasets",
 			SelectedClusterCount: selectedCount,
 			QueryString:          queryString,
 			CacheBuster:          cacheBuster,
-			IsSearchPage:         false,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
+			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		var allReplicaSets []ReplicaSetInfo
@@ -352,7 +474,6 @@ func handleGetReplicaSets(pattern string) echo.HandlerFunc {
 				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel()
 				rsList, err := client.Clientset.AppsV1().ReplicaSets("").List(ctx, metav1.ListOptions{})
-				cancel()
 				if err != nil {
 					mutex.Lock()
 					base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Cluster: %s | Error: Failed to list replicasets (%v)", client.ContextName, err))
@@ -445,6 +566,8 @@ func handleGetReplicaSetDetail(pattern string) echo.HandlerFunc {
 		if clusterContextName == "" || namespace == "" || rsName == "" {
 			return c.String(400, "Missing required query parameters: cluster_name, namespace, name")
 		}
+
+		// [UPDATED] Injected CurrentConfig.IsAdmin
 		base := PageBase{
 			Title:                rsName,
 			ActivePage:           "replicasets",
@@ -453,7 +576,9 @@ func handleGetReplicaSetDetail(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
 		clientset, err := findClient(pattern, clusterContextName)
 		if err != nil {
 			base.ErrorLogs = append(base.ErrorLogs, err.Error())

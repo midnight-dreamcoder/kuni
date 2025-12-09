@@ -195,7 +195,7 @@
                     {{ range .Deployments }}
                     <tr>
                         <td>
-                            <a href="/deployment/detail?name={{ .Name | urlquery }}{{ $.QueryString }}" class="deployment-link">
+                            <a href="{{ MakeURL $.QueryString "/deployment/detail" "name" .Name }}" class="deployment-link">
                                 {{ .Name }}
                             </a>
                         </td>

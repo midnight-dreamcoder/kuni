@@ -22,6 +22,8 @@ func handleGetNamespaces(pattern string) echo.HandlerFunc {
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
 		}
+		
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "Namespaces",
 			ActivePage:           "namespaces",
@@ -30,7 +32,9 @@ func handleGetNamespaces(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 
@@ -133,6 +137,8 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 		if namespaceName == "" {
 			return c.String(400, "Missing required query parameter: name")
 		}
+
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                namespaceName,
 			ActivePage:           "namespaces",
@@ -141,7 +147,9 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
 		filesToProcess, err := getFilesToProcess(c, pattern)
 		if err != nil {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Error finding kubeconfig files: %v", err))
@@ -215,16 +223,16 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 						restartCount := 0; for _, cs := range pod.Status.ContainerStatuses { restartCount += int(cs.RestartCount) }
 						nodeName := pod.Spec.NodeName; if nodeName == "" { nodeName = "N/A" }
 						detailView.Pods = append(detailView.Pods, PodInfo{
-							Cluster:  client.ContextName,
-							Name:     pod.Name,
-							Ready:    readyStr,
-							Status:   string(pod.Status.Phase),
-							Reason:   getPodReason(pod),
-							Restarts: restartCount,
-							Node:     nodeName,
-							PodIP:    pod.Status.PodIP,
-							QoS:      string(pod.Status.QOSClass),
-							Age:      formatAge(pod.CreationTimestamp),
+							Cluster:   client.ContextName,
+							Name:      pod.Name,
+							Ready:     readyStr,
+							Status:    string(pod.Status.Phase),
+							Reason:    getPodReason(pod),
+							Restarts:  restartCount,
+							Node:      nodeName,
+							PodIP:     pod.Status.PodIP,
+							QoS:       string(pod.Status.QOSClass),
+							Age:       formatAge(pod.CreationTimestamp),
 						})
 					}
 				}()
@@ -276,6 +284,8 @@ func handleGetServices(pattern string) echo.HandlerFunc {
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
 		}
+
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "All Services",
 			ActivePage:           "services",
@@ -284,7 +294,9 @@ func handleGetServices(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		var allServices []ServiceInfo
@@ -385,6 +397,7 @@ func handleGetServiceDetail(pattern string) echo.HandlerFunc {
 			return c.String(400, "Missing required query parameters")
 		}
 
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                svcName,
 			ActivePage:           "services",
@@ -393,6 +406,7 @@ func handleGetServiceDetail(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
 		clientset, err := findClient(pattern, clusterContextName)
@@ -548,6 +562,7 @@ func handleGetIngresses(pattern string) echo.HandlerFunc {
 		filesToProcess, err := getFilesToProcess(c, pattern)
 		if err != nil { return c.String(500, "Error finding kubeconfig files") }
 		
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "Ingresses",
 			ActivePage:           "ingresses",
@@ -556,7 +571,9 @@ func handleGetIngresses(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
@@ -652,10 +669,17 @@ func handleGetIngressDetail(pattern string) echo.HandlerFunc {
 			return c.String(400, "Missing params")
 		}
 		
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
-			Title: name, ActivePage: "ingresses", SelectedClusterCount: selectedCount,
-			QueryString: queryString, CacheBuster: cacheBuster, LastRefreshed: time.Now().Format(time.RFC1123),
+			Title:                name,
+			ActivePage:           "ingresses",
+			SelectedClusterCount: selectedCount,
+			QueryString:          queryString,
+			CacheBuster:          cacheBuster,
+			LastRefreshed:        time.Now().Format(time.RFC1123),
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
 		clientset, err := findClient(pattern, clusterContextName)
 		if err != nil {
 			base.ErrorLogs = append(base.ErrorLogs, err.Error())

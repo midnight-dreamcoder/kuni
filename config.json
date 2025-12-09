@@ -1,0 +1,5 @@
+{
+  "app_title": "K8s Universal Inspector",
+  "is_admin": true,
+  "server_port": ":8080"
+}

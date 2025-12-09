@@ -24,6 +24,8 @@ import (
 func handleGetClusters(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		selectedCount, queryString, cacheBuster := getRequestFilter(c)
+		
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "Cluster Status",
 			ActivePage:           "clusters",
@@ -32,6 +34,7 @@ func handleGetClusters(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
 		matchedFiles, err := filepath.Glob(pattern)
@@ -161,6 +164,12 @@ func handleGetClusters(pattern string) echo.HandlerFunc {
 // handleUploadConfig saves a new kubeconfig file to the .kube directory
 func handleUploadConfig(kubeDir string) echo.HandlerFunc {
 	return func(c echo.Context) error {
+		// [SECURITY] Block upload in Guest Mode
+		if !CurrentConfig.IsAdmin {
+			log.Println("⛔ Blocked config upload attempt (Guest Mode)")
+			return c.Redirect(302, "/clusters?error=upload_not_allowed_in_guest_mode")
+		}
+
 		file, err := c.FormFile("kubeconfig")
 		if err != nil {
 			log.Printf("ERROR: Failed to get file from form: %v", err)
@@ -202,6 +211,8 @@ func handleGetClusterDetail(pattern string) echo.HandlerFunc {
 		if clusterContextName == "" {
 			return c.String(400, "Missing required query parameter: cluster_name")
 		}
+
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                clusterContextName,
 			ActivePage:           "clusters",
@@ -210,6 +221,7 @@ func handleGetClusterDetail(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
 		clientset, err := findClient(pattern, clusterContextName)
@@ -219,10 +231,10 @@ func handleGetClusterDetail(pattern string) echo.HandlerFunc {
 		}
 		
 		data := ClusterDetailPageData{
-			PageBase:      base,
-			Namespaces:    make([]string, 0),
-			Nodes:         make([]NodeInfo, 0),
-			Events:        make([]EventInfo, 0),
+			PageBase:   base,
+			Namespaces: make([]string, 0),
+			Nodes:      make([]NodeInfo, 0),
+			Events:     make([]EventInfo, 0),
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -393,6 +405,8 @@ func handleGetClusterOverview(pattern string) echo.HandlerFunc {
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
 		}
+
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "Cluster Overview",
 			ActivePage:           "overview",
@@ -401,7 +415,9 @@ func handleGetClusterOverview(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
@@ -538,6 +554,8 @@ func handleGetNodes(pattern string) echo.HandlerFunc {
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
 		}
+		
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "All Nodes",
 			ActivePage:           "nodes",
@@ -546,7 +564,9 @@ func handleGetNodes(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		var allNodes []NodeInfo
@@ -653,6 +673,8 @@ func handleGetNodeDetail(pattern string) echo.HandlerFunc {
 		if clusterContextName == "" || nodeName == "" {
 			return c.String(400, "Missing required query parameters: cluster_name, name")
 		}
+
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                nodeName,
 			ActivePage:           "nodes",
@@ -661,7 +683,9 @@ func handleGetNodeDetail(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
 		clientset, err := findClient(pattern, clusterContextName)
 		if err != nil {
 			base.ErrorLogs = append(base.ErrorLogs, err.Error())

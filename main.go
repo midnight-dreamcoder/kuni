@@ -24,25 +24,40 @@ func (t *TemplateRenderer) Render(w io.Writer, name string, data interface{}, c 
 }
 
 func main() {
-	// --- 1. Initialize Echo ---
+	// 1. Load Config (Populates global CurrentConfig)
+	LoadConfig("config.json")
+	
+	// --- 2. Initialize Echo ---
 	e := echo.New()
 	e.Debug = true
 
-	// --- 1.1 Serve static files ---
+	// --- 2.1 Serve static files ---
 	e.File("/style.css", "views/style.css")
 
-	// --- 1.2 Initialize the custom template renderer ---
+	// --- 2.2 Initialize the custom template renderer ---
 	t := &TemplateRenderer{
 		templates: template.Must(template.New("main").Funcs(template.FuncMap{
 			"ToLower": strings.ToLower,
-			"fdiv": func(a, b int) float64 { // For workload charts
+			"fdiv": func(a, b int) float64 {
 				if b == 0 {
 					return 0.0
 				}
 				return float64(a) / float64(b)
 			},
-			"mulf": func(a, b float64) float64 { // For workload charts
+			"mulf": func(a, b float64) float64 {
 				return a * b
+			},
+			"add": func(a, b int) int {
+				return a + b
+			},
+			"mod": func(a, b int) int {
+				return a % b
+			},
+			"ColorSlice": func() []string {
+				return []string{"#22d3ee", "#f59e0b", "#9b59b6", "#ef4444", "#3498db", "#f1c40f", "#2ecc71", "#8e44ad", "#c0392b", "#9ca3af"}
+			},
+			"js": func(s string) template.JS {
+				return template.JS(fmt.Sprintf("%q", s))
 			},
 			"MakeURL": func(baseQuery string, path string, params ...string) (template.HTML, error) {
 				v, _ := url.ParseQuery(strings.TrimPrefix(baseQuery, "?"))
@@ -54,57 +69,34 @@ func main() {
 				}
 				return template.HTML(path + "?" + v.Encode()), nil
 			},
-			
-			// --- THIS IS THE FIX ---
-			"add": func(a, b int) int {
-				return a + b
-			},
-			"mod": func(a, b int) int {
-				return a % b
-			},
-			// This helper provides the color list to the template
-			"ColorSlice": func() []string {
-				return []string{"#22d3ee", "#f59e0b", "#9b59b6", "#ef4444", "#3498db", "#f1c40f", "#2ecc71", "#8e44ad", "#c0392b", "#9ca3af"}
-			},
-			// --- END OF FIX ---
-			// js safely escapes a string for JavaScript
-			"js": func(s string) template.JS {
-				return template.JS(fmt.Sprintf("%q", s))
-			},
-			// Add this function to your existing template.FuncMap in main.go
 			"MakeOwnerURL": func(qs string, name string, kind string, ns string, cluster string) template.HTML {
-			    var path string
-			    // Determine the correct detail path based on the resource Kind
-			    switch kind {
-			    case "ReplicaSet":
-			        path = "/replicaset/detail"
-			    case "Deployment":
-			        path = "/deployment/detail"
-			    case "DaemonSet":
-			        path = "/daemonset/detail"
-			    case "StatefulSet":
-			        path = "/statefulset/detail"
-			    default:
-			        // Fallback to search for unhandled types (like Job)
-			        return template.HTML(fmt.Sprintf("/search?q=%s", url.QueryEscape(name)))
-			    }
-			    
-			    // Construct the URL by adding necessary params (name, namespace, cluster)
-			    v, _ := url.ParseQuery(strings.TrimPrefix(qs, "?"))
-			    v.Add("name", name)
-			    v.Add("namespace", ns)
-			    v.Add("cluster_name", cluster)
+				var path string
+				switch kind {
+				case "ReplicaSet":
+					path = "/replicaset/detail"
+				case "Deployment":
+					path = "/deployment/detail"
+				case "DaemonSet":
+					path = "/daemonset/detail"
+				case "StatefulSet":
+					path = "/statefulset/detail"
+				default:
+					return template.HTML(fmt.Sprintf("/search?q=%s", url.QueryEscape(name)))
+				}
+				
+				v, _ := url.ParseQuery(strings.TrimPrefix(qs, "?"))
+				v.Add("name", name)
+				v.Add("namespace", ns)
+				v.Add("cluster_name", cluster)
 
-			    return template.HTML(path + "?" + v.Encode())
+				return template.HTML(path + "?" + v.Encode())
 			},
-
-
 		}).ParseGlob("views/*.html")),
 	}
 
 	e.Renderer = t
 
-	// --- 2. Define the Route Handlers ---
+	// --- 3. Define the Route Handlers ---
 	home := homedir.HomeDir()
 	if home == "" {
 		log.Fatal("Error: HOME environment variable not set.")
@@ -114,7 +106,7 @@ func main() {
 	log.Printf("🔍 Server configured to search for files matching: %s\n", pattern)
 
 	// Register routes
-	e.GET("/", handleSearch(pattern)) // Default to search
+	e.GET("/", handleSearch(pattern))
 	e.GET("/overview", handleGetClusterOverview(pattern))
 	e.GET("/search", handleSearch(pattern))
 	e.GET("/workload", handleGetWorkloadOverview(pattern))
@@ -152,8 +144,12 @@ func main() {
 	e.GET("/secrets", handleGetSecrets(pattern))
 	e.GET("/secret/detail", handleGetSecretDetail(pattern))
 
-
-	// --- 3. Start the Server ---
-	log.Println("🚀 K8s Universal Inspector starting on http://localhost:8080")
-	e.Logger.Fatal(e.Start(":8080"))
+	// --- 4. Start the Server using Config ---
+	port := ":8080" // Default fallback
+	if CurrentConfig != nil && CurrentConfig.ServerPort != "" {
+		port = CurrentConfig.ServerPort
+	}
+	
+	log.Printf("🚀 K8s Universal Inspector starting on http://localhost%s", port)
+	e.Logger.Fatal(e.Start(port))
 }

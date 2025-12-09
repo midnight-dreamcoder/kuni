@@ -34,6 +34,8 @@ type PageBase struct {
 	ErrorLogs            []string
 	LastRefreshed        string
 	IsSearchPage         bool
+	IsAdmin              bool   // If false, UI hides write actions
+	UserName             string // e.g. "admin" or "guest"
 }
 
 // ClusterPageData is the main data object for the clusters.html template
@@ -104,9 +106,9 @@ type AggregatedDeploymentView struct {
 
 // NamespaceStat holds a simple count for the stats box
 type NamespaceStat struct {
-	Name  string
-	Count int
-	Color string
+	Name        string
+	Count       int
+	Color       string
 	ErrorDetail string
 }
 
@@ -181,6 +183,9 @@ type DeploymentDetailView struct {
 	Images       []string
 	Conditions   []string
 	MinReadySecs int32
+
+	RolloutStatus  RolloutStatusInfo
+	RolloutHistory []RolloutHistoryInfo
 }
 
 // DeploymentDetailPageData is the main data object for the detail page
@@ -216,16 +221,16 @@ type ReplicaSetPageData struct {
 // ReplicaSetDetailPageData is the main data object for the replicaset-detail.html template
 type ReplicaSetDetailPageData struct {
 	PageBase
-	ClusterName     string
-	NamespaceName   string
-	ReplicaSetName  string
-	Status          string
-	Selector        string
-	OwnerName       string // <-- UPDATED
-	OwnerKind       string // <-- UPDATED
-	Age             string
-	Pods            []PodInfo
-	Events          []EventInfo
+	ClusterName    string
+	NamespaceName  string
+	ReplicaSetName string
+	Status         string
+	Selector       string
+	OwnerName      string
+	OwnerKind      string
+	Age            string
+	Pods           []PodInfo
+	Events         []EventInfo
 }
 
 // SimpleDeploymentInfo is for the namespace detail list.
@@ -295,7 +300,7 @@ type EventInfo struct {
 	Message   string
 	Count     int
 	LastSeen  string
-	Timestamp time.Time // <-- NEW: For sorting
+	Timestamp time.Time // For sorting
 }
 
 // EventBucket holds aggregated counts for a time slice
@@ -318,8 +323,8 @@ type PodDetailPageData struct {
 	QoS            string
 	ServiceAccount string
 	Age            string
-	OwnerName      string // <-- NEW: Owner name (e.g., my-app-rs-abc)
-	OwnerKind      string // <-- NEW: Owner kind (e.g., ReplicaSet)
+	OwnerName      string
+	OwnerKind      string
 	Owner          string
 	Labels         map[string]string
 	Annotations    map[string]string
@@ -363,13 +368,13 @@ type RestartingPodInfo struct {
 // WorkloadOverviewPageData is the main data object for the page
 type WorkloadOverviewPageData struct {
 	PageBase
-	PodStatus        []PodStatusStat
-	PodStatusTotal   int
-	DeploymentStatus WorkloadStat
-	ReplicaSetStatus WorkloadStat
-	RecentWarnings   []EventInfo
-	RecentRestarts   []RestartingPodInfo
-	PodReasonStats   []ReasonStat
+	PodStatus         []PodStatusStat
+	PodStatusTotal    int
+	DeploymentStatus  WorkloadStat
+	ReplicaSetStatus  WorkloadStat
+	RecentWarnings    []EventInfo
+	RecentRestarts    []RestartingPodInfo
+	PodReasonStats    []ReasonStat
 	PodNamespaceStats []NamespaceStat
 }
 
@@ -522,58 +527,48 @@ type ClusterDetailPageData struct {
 // NodeDetailPageData is the main data object for the node-detail.html template
 type NodeDetailPageData struct {
 	PageBase
-	ClusterName string
-	NodeName    string
+	ClusterName      string
+	NodeName         string
 	KubeletVersion   string
 	OS               string
 	ContainerRuntime string
 	ProviderID       string
 	Age              string
 	Role             string
-	Addresses   []NodeAddressInfo
-	Taints      []NodeTaintInfo
-	Labels      map[string]string
-	Annotations map[string]string
-	Conditions  []PodConditionInfo
-	Capacity    map[string]string
-	Allocatable map[string]string
-	Resources ResourceSummary
-	Pods   []PodInfo
-	Events []EventInfo
+	Addresses        []NodeAddressInfo
+	Taints           []NodeTaintInfo
+	Labels           map[string]string
+	Annotations      map[string]string
+	Conditions       []PodConditionInfo
+	Capacity         map[string]string
+	Allocatable      map[string]string
+	Resources        ResourceSummary
+	Pods             []PodInfo
+	Events           []EventInfo
 }
-
-// --- Add this new struct ---
 
 // ClusterOverviewPageData is the main data object for the overview.html template
 type ClusterOverviewPageData struct {
 	PageBase
-	TotalClusters int
-	NodeStatus    WorkloadStat
-	PVStatus      []PodStatusStat
-	TotalPVs      int
-	
-	// --- NEW FIELDS ---
-	// map[ClusterName] -> ResourceSummary
+	TotalClusters    int
+	NodeStatus       WorkloadStat
+	PVStatus         []PodStatusStat
+	TotalPVs         int
 	ClusterResources map[string]ResourceSummary 
-	ClusterNames     []string // To maintain a sorted order
+	ClusterNames     []string
 }
 
 // EventPageData is the main data object for the events.html template
 type EventPageData struct {
 	PageBase
-	RecentEvents   []EventInfo // Top 100 most recent events
-	TotalEvents    int         // Total in the last hour
-	
-	// Data for Stacked Bars
+	RecentEvents   []EventInfo
+	TotalEvents    int
 	ClusterStats   []ClusterStat
 	NamespaceStats []NamespaceStat
 	ReasonStats    []ReasonStat
-	
-	// --- NEW: Data for the Heatmap ---
-	HeatmapNamespaces []string // The X-axis (Top 10 Namespaces)
-	HeatmapRows       []HeatmapRow // The Y-axis (Clusters) and data
+	HeatmapNamespaces []string
+	HeatmapRows       []HeatmapRow
 }
-
 
 // ServiceInfo holds the data for one service in a list
 type ServiceInfo struct {
@@ -589,18 +584,18 @@ type ServiceInfo struct {
 // ServicePageData is the main data object for the services.html template
 type ServicePageData struct {
 	PageBase
-	Services       []ServiceInfo
-	TotalServices  int
-	ClusterStats   []ClusterStat
+	Services      []ServiceInfo
+	TotalServices int
+	ClusterStats  []ClusterStat
 	NamespaceStats []NamespaceStat
 }
 
 // HeatmapCell holds a single data point for the heatmap
 type HeatmapCell struct {
 	Count          int
-	Level          string // CSS class e.g., "heat-0", "heat-1"
-	TopReason      string // <-- NEW
-	TopReasonCount int    // <-- NEW
+	Level          string
+	TopReason      string
+	TopReasonCount int
 }
 
 // HeatmapRow holds all the cells for a single cluster
@@ -611,14 +606,14 @@ type HeatmapRow struct {
 
 // PVCInfo holds the data for one PersistentVolumeClaim
 type PVCInfo struct {
-	Cluster     string
-	Namespace   string
-	Name        string
-	Status      string // e.g., Bound, Pending
-	VolumeName  string
-	Capacity    string
+	Cluster      string
+	Namespace    string
+	Name         string
+	Status       string // e.g., Bound, Pending
+	VolumeName   string
+	Capacity     string
 	StorageClass string
-	Age         string
+	Age          string
 }
 
 // PVCPageData is the main data object for the pvcs.html template
@@ -628,16 +623,15 @@ type PVCPageData struct {
 	TotalPVCs      int
 	ClusterStats   []ClusterStat
 	NamespaceStats []NamespaceStat
-	StatusStats    []PodStatusStat // Re-using this for PVC Status (Bound/Pending)
+	StatusStats    []PodStatusStat
 }
-
 
 // ServiceAccountInfo holds the data for one SA in a list
 type ServiceAccountInfo struct {
 	Cluster   string
 	Namespace string
 	Name      string
-	Secrets   int    // Count of secrets
+	Secrets   int
 	Age       string
 }
 
@@ -657,14 +651,10 @@ type ServiceAccountDetailPageData struct {
 	NamespaceName      string
 	ServiceAccountName string
 	Age                string
-	
-	// Lists of secret names
-	Secrets          []string 
-	ImagePullSecrets []string
-	
-	// Reverse lookup
-	Pods   []PodInfo
-	Events []EventInfo
+	Secrets            []string 
+	ImagePullSecrets   []string
+	Pods               []PodInfo
+	Events             []EventInfo
 }
 
 // ServicePortInfo holds data for a single port
@@ -687,23 +677,19 @@ type EndpointInfo struct {
 // ServiceDetailPageData is the main data object for the service-detail.html template
 type ServiceDetailPageData struct {
 	PageBase
-	ClusterName   string
-	NamespaceName string
-	ServiceName   string
-
-	// Overview
-	Type           string
-	ClusterIP      string
-	ExternalIPs    []string
-	LoadBalancerIP string
-	Selector       map[string]string
-	Age            string
+	ClusterName     string
+	NamespaceName   string
+	ServiceName     string
+	Type            string
+	ClusterIP       string
+	ExternalIPs     []string
+	LoadBalancerIP  string
+	Selector        map[string]string
+	Age             string
 	SessionAffinity string
-
-	// Tables
-	Ports     []ServicePortInfo
-	Endpoints []EndpointInfo
-	Events    []EventInfo
+	Ports           []ServicePortInfo
+	Endpoints       []EndpointInfo
+	Events          []EventInfo
 }
 
 // PVCDetailPageData is the main data object for the pvc-detail.html template
@@ -712,21 +698,15 @@ type PVCDetailPageData struct {
 	ClusterName   string
 	NamespaceName string
 	PVCName       string
-
-	// Overview
-	Status       string
-	Volume       string
-	Capacity     string
-	StorageClass string
-	AccessModes  []string
-	Age          string
-
-	// Relations
-	MountedBy []PodInfo
-	Events    []EventInfo
+	Status        string
+	Volume        string
+	Capacity      string
+	StorageClass  string
+	AccessModes   []string
+	Age           string
+	MountedBy     []PodInfo
+	Events        []EventInfo
 }
-
-// --- Add these new structs ---
 
 // IngressInfo holds data for the list view
 type IngressInfo struct {
@@ -762,20 +742,14 @@ type IngressDetailPageData struct {
 	ClusterName   string
 	NamespaceName string
 	IngressName   string
-	
-	// Overview
-	ClassName string
-	Address   string
-	Age       string
-	
-	// Specs
-	Rules       []IngressRuleInfo
-	TLS         []string // Descriptions of TLS blocks
-	Annotations map[string]string
-	Events      []EventInfo
+	ClassName     string
+	Address       string
+	Age           string
+	Rules         []IngressRuleInfo
+	TLS           []string
+	Annotations   map[string]string
+	Events        []EventInfo
 }
-
-// --- Add these new structs ---
 
 // SecretInfo holds data for the list view
 type SecretInfo struct {
@@ -790,11 +764,11 @@ type SecretInfo struct {
 // SecretPageData is the main data for secrets.html
 type SecretPageData struct {
 	PageBase
-	Secrets       []SecretInfo
-	TotalSecrets  int
-	ClusterStats  []ClusterStat
+	Secrets        []SecretInfo
+	TotalSecrets   int
+	ClusterStats   []ClusterStat
 	NamespaceStats []NamespaceStat
-	TypeStats     []ReasonStat // Re-using ReasonStat for Secret Types
+	TypeStats      []ReasonStat
 }
 
 // SecretDetailPageData is the main data for secret-detail.html
@@ -805,30 +779,40 @@ type SecretDetailPageData struct {
 	SecretName    string
 	Type          string
 	Age           string
-	// Data map holds Key -> Value (we will keep values base64 encoded here by default)
 	Data          map[string]string 
 	Events        []EventInfo
 }
 
-// --- Add these new structs ---
-
 // CRDInfo holds metadata about a Custom Resource Definition
 type CRDInfo struct {
-	Name      string // e.g., "prometheuses.monitoring.coreos.com"
-	Group     string // "monitoring.coreos.com"
-	Version   string // "v1"
-	Kind      string // "Prometheus"
-	Scope     string // "Namespaced" or "Cluster"
-	Age       string
-	// We aggregate which clusters have this CRD
-	Clusters  []string 
+	Name     string
+	Group    string
+	Version  string
+	Kind     string
+	Scope    string
+	Age      string
+	Clusters []string 
 }
 
 // CRDPageData is the main data for crds.html
 type CRDPageData struct {
 	PageBase
-	CRDs          []CRDInfo
-	TotalCRDs     int
-	GroupStats    []ClusterStat // Re-using ClusterStat for Group counts
-	ScopeStats    []ClusterStat // Re-using ClusterStat for Scope counts
+	CRDs       []CRDInfo
+	TotalCRDs  int
+	GroupStats []ClusterStat
+	ScopeStats []ClusterStat
+}
+
+// RolloutStatusInfo holds the computed status (like 'kubectl rollout status')
+type RolloutStatusInfo struct {
+	Message    string
+	IsComplete bool
+}
+
+// RolloutHistoryInfo holds one revision (like 'kubectl rollout history')
+type RolloutHistoryInfo struct {
+	Revision    int64
+	ChangeCause string
+	Age         string
+	Images      []string
 }

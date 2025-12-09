@@ -10,7 +10,6 @@ import (
 
 	"github.com/labstack/echo/v4"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	// v1 import removed
 )
 
 // handleGetDaemonSets lists all daemonsets
@@ -21,6 +20,8 @@ func handleGetDaemonSets(pattern string) echo.HandlerFunc {
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
 		}
+		
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "All DaemonSets",
 			ActivePage:           "daemonsets",
@@ -29,7 +30,9 @@ func handleGetDaemonSets(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		var allDaemonSets []DaemonSetInfo
@@ -119,11 +122,11 @@ func handleGetDaemonSets(pattern string) echo.HandlerFunc {
 		}
 
 		data := DaemonSetPageData{
-			PageBase:         base,
-			DaemonSets:       allDaemonSets,
-			TotalDaemonSets:  len(allDaemonSets),
-			ClusterStats:     clusterStats,
-			NamespaceStats:   namespaceStats,
+			PageBase:          base,
+			DaemonSets:        allDaemonSets,
+			TotalDaemonSets:   len(allDaemonSets),
+			ClusterStats:      clusterStats,
+			NamespaceStats:    namespaceStats,
 			NodeSelectorStats: nodeSelectorStats,
 		}
 		return c.Render(200, "daemonsets.html", data)
@@ -140,6 +143,8 @@ func handleGetDaemonSetDetail(pattern string) echo.HandlerFunc {
 		if clusterContextName == "" || namespace == "" || dsName == "" {
 			return c.String(400, "Missing required query parameters: cluster_name, namespace, name")
 		}
+
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                dsName,
 			ActivePage:           "daemonsets",
@@ -148,17 +153,19 @@ func handleGetDaemonSetDetail(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
 		clientset, err := findClient(pattern, clusterContextName)
 		if err != nil {
 			base.ErrorLogs = append(base.ErrorLogs, err.Error())
 			return c.Render(200, "daemonset-detail.html", DaemonSetDetailPageData{PageBase: base})
 		}
 		data := DaemonSetDetailPageData{
-			PageBase:       base,
-			ClusterName:    clusterContextName,
-			NamespaceName:  namespace,
-			DaemonSetName:  dsName,
+			PageBase:        base,
+			ClusterName:     clusterContextName,
+			NamespaceName:   namespace,
+			DaemonSetName:   dsName,
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -235,6 +242,8 @@ func handleGetStatefulSets(pattern string) echo.HandlerFunc {
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
 		}
+
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "All StatefulSets",
 			ActivePage:           "statefulsets",
@@ -243,7 +252,9 @@ func handleGetStatefulSets(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		var allStatefulSets []StatefulSetInfo
@@ -309,11 +320,11 @@ func handleGetStatefulSets(pattern string) echo.HandlerFunc {
 		}
 
 		data := StatefulSetPageData{
-			PageBase:         base,
-			StatefulSets:     allStatefulSets,
+			PageBase:          base,
+			StatefulSets:      allStatefulSets,
 			TotalStatefulSets: len(allStatefulSets),
-			ClusterStats:     clusterStats,
-			NamespaceStats:   namespaceStats,
+			ClusterStats:      clusterStats,
+			NamespaceStats:    namespaceStats,
 		}
 		return c.Render(200, "statefulsets.html", data)
 	}
@@ -329,6 +340,8 @@ func handleGetStatefulSetDetail(pattern string) echo.HandlerFunc {
 		if clusterContextName == "" || namespace == "" || ssName == "" {
 			return c.String(400, "Missing required query parameters: cluster_name, namespace, name")
 		}
+
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                ssName,
 			ActivePage:           "statefulsets",
@@ -337,7 +350,9 @@ func handleGetStatefulSetDetail(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
 		clientset, err := findClient(pattern, clusterContextName)
 		if err != nil {
 			base.ErrorLogs = append(base.ErrorLogs, err.Error())

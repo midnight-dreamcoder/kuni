@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
-	"strings"
 
 	"github.com/labstack/echo/v4"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,6 +21,8 @@ func handleGetWorkloadOverview(pattern string) echo.HandlerFunc {
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
 		}
+		
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "Workload Overview",
 			ActivePage:           "workload",
@@ -29,7 +31,9 @@ func handleGetWorkloadOverview(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		var wg sync.WaitGroup
@@ -222,7 +226,7 @@ func handleGetWorkloadOverview(pattern string) echo.HandlerFunc {
 				Name:        ns, 
 				Count:       count, 
 				Color:       color,
-				ErrorDetail: detail, // <-- ADDED
+				ErrorDetail: detail,
 			})
 		}
 		sort.Slice(nsSlice, func(i, j int) bool {

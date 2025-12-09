@@ -23,6 +23,7 @@
         </div>
         {{ end }}
 
+        {{ if .IsAdmin }}
         <div class="action-toolbar">
             
             <form class="tool-card" action="/cluster/upload" method="POST" enctype="multipart/form-data">
@@ -38,6 +39,7 @@
             </form>
             
         </div>
+        {{ end }}
 
         <div class="search-container">
             <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="Search clusters by name, status, version, etc. (supports regex)">

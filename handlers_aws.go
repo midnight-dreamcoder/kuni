@@ -18,6 +18,12 @@ import (
 // handleDiscoverEKS connects to AWS, finds clusters, and saves configs
 func handleDiscoverEKS(kubeDir string, region string) echo.HandlerFunc {
 	return func(c echo.Context) error {
+		// [SECURITY] Block this action if not in Admin mode
+		if !CurrentConfig.IsAdmin {
+			log.Println("⛔ Blocked EKS discovery attempt (Guest Mode)")
+			return c.Redirect(302, "/clusters?error=action_not_allowed_in_guest_mode")
+		}
+
 		// 1. Load AWS Configuration (looks for env vars, profile, or default chain)
 		// We default to us-east-1 if not specified, but you can pass it in query
 		targetRegion := c.QueryParam("region")
@@ -65,10 +71,19 @@ func handleDiscoverEKS(kubeDir string, region string) echo.HandlerFunc {
 			kubeConfig := clientcmdapi.NewConfig()
 
 			// Cluster Data
-			caData, _ := base64.StdEncoding.DecodeString(*cl.CertificateAuthority.Data)
-			kubeConfig.Clusters[clusterName] = &clientcmdapi.Cluster{
-				Server:                   *cl.Endpoint,
-				CertificateAuthorityData: caData,
+			// Note: EKS usually provides CA data. We handle the pointer safely.
+			if cl.CertificateAuthority != nil && cl.CertificateAuthority.Data != nil {
+				caData, _ := base64.StdEncoding.DecodeString(*cl.CertificateAuthority.Data)
+				kubeConfig.Clusters[clusterName] = &clientcmdapi.Cluster{
+					Server:                   *cl.Endpoint,
+					CertificateAuthorityData: caData,
+				}
+			} else {
+				// Fallback if no CA data (skip verification or bare endpoint)
+				kubeConfig.Clusters[clusterName] = &clientcmdapi.Cluster{
+					Server:                *cl.Endpoint,
+					InsecureSkipTLSVerify: true,
+				}
 			}
 
 			// Auth Info (Exec Plugin)

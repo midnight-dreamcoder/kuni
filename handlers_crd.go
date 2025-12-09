@@ -21,6 +21,8 @@ func handleGetCRDs(pattern string) echo.HandlerFunc {
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
 		}
+
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "Custom Resources",
 			ActivePage:           "crds",
@@ -29,7 +31,9 @@ func handleGetCRDs(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 
@@ -47,8 +51,12 @@ func handleGetCRDs(pattern string) echo.HandlerFunc {
 				defer wg.Done()
 				
 				// 1. Build Config from path (needed for Extension Client)
+				// Standard clientset doesn't include CRDs, so we need a new config build here.
 				config, err := clientcmd.BuildConfigFromFlags("", client.ConfigPath)
 				if err != nil {
+					mutex.Lock()
+					base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Cluster: %s | Config Error: %v", client.ContextName, err))
+					mutex.Unlock()
 					return 
 				}
 				

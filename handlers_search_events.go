@@ -21,6 +21,8 @@ func handleSearch(pattern string) echo.HandlerFunc {
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
 		}
+		
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "Search",
 			ActivePage:           "search",
@@ -29,7 +31,9 @@ func handleSearch(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			IsSearchPage:         true,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+		
 		data := SearchPageData{
 			PageBase: base,
 		}
@@ -104,6 +108,7 @@ func handleGetEvents(pattern string) echo.HandlerFunc {
 		now := time.Now().UTC()
 		hourAgo := now.Add(-1 * time.Hour)
 
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "Cluster Events (Last Hour)",
 			ActivePage:           "events",
@@ -112,6 +117,7 @@ func handleGetEvents(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        now.Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
 		clients, clientErrors := createClients(filesToProcess)

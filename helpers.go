@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt" // <-- THIS WAS THE MISSING IMPORT
+	"fmt"
 	"net/url"
 	"path/filepath"
 	"regexp"
@@ -593,61 +593,6 @@ func searchPersistentVolumes(re *regexp.Regexp, clients []KubeClient, results ch
 	internalWg.Wait()
 }
 
-// --- Add this function to helpers.go ---
-
-// --- Replace your existing parseContainer function with this ---
-
-// parseContainer extracts full technical info from a v1.Container
-func parseContainer(c v1.Container) ContainerInfo {
-	info := ContainerInfo{
-		Name:    c.Name,
-		Image:   c.Image,
-		Command: c.Command,
-		Env:     make(map[string]string),
-		Mounts:  make(map[string]string),
-	}
-
-	// Parse Ports
-	for _, p := range c.Ports {
-		info.Ports = append(info.Ports, fmt.Sprintf("%s:%d/%s", p.Name, p.ContainerPort, p.Protocol))
-	}
-
-	// Parse Env Vars
-	for _, e := range c.Env {
-		if e.Value != "" {
-			info.Env[e.Name] = e.Value
-		} else if e.ValueFrom != nil {
-			if e.ValueFrom.SecretKeyRef != nil {
-				info.Env[e.Name] = "from(secret)"
-			} else if e.ValueFrom.ConfigMapKeyRef != nil {
-				info.Env[e.Name] = "from(configmap)"
-			} else if e.ValueFrom.FieldRef != nil {
-				info.Env[e.Name] = fmt.Sprintf("from(field:%s)", e.ValueFrom.FieldRef.FieldPath)
-			} else {
-				info.Env[e.Name] = "from(reference)"
-			}
-		}
-	}
-
-	// Parse Mounts
-	for _, m := range c.VolumeMounts {
-		info.Mounts[m.MountPath] = m.Name
-	}
-
-	// Parse Resources
-	req := c.Resources.Requests
-	lim := c.Resources.Limits
-	if len(req) > 0 || len(lim) > 0 {
-		info.Resources = fmt.Sprintf("CPU: %s/%s | Mem: %s/%s",
-			req.Cpu().String(), lim.Cpu().String(),
-			req.Memory().String(), lim.Memory().String())
-	}
-
-	return info
-}
-
-// --- Add this function to helpers.go ---
-
 // searchServices performs regex search on services
 func searchServices(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
 	defer wg.Done()
@@ -670,9 +615,7 @@ func searchServices(re *regexp.Regexp, clients []KubeClient, results chan<- Sear
 						Name:       svc.Name,
 						Cluster:    client.ContextName,
 						Namespace:  svc.Namespace,
-						// --- THIS IS THE FIX ---
 						Matches:    []MatchInfo{{Field: "Name", Value: svc.Name}},
-						// --- END FIX ---
 						URL:        fmt.Sprintf("/search?q=%s", url.QueryEscape(svc.Name)), // No detail page yet
 						Info:       svc.Spec.ClusterIP,
 						Status:     string(svc.Spec.Type),
@@ -683,8 +626,6 @@ func searchServices(re *regexp.Regexp, clients []KubeClient, results chan<- Sear
 	}
 	internalWg.Wait()
 }
-
-// --- Add this function to helpers.go ---
 
 func getHeatLevel(count int) string {
 	if count == 0 {
@@ -740,8 +681,6 @@ func searchPVCs(re *regexp.Regexp, clients []KubeClient, results chan<- SearchRe
 	}
 	internalWg.Wait()
 }
-
-// --- Add this function to helpers.go ---
 
 // searchServiceAccounts performs regex search on ServiceAccounts
 func searchServiceAccounts(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
@@ -814,8 +753,6 @@ func searchIngresses(re *regexp.Regexp, clients []KubeClient, results chan<- Sea
 	internalWg.Wait()
 }
 
-// --- Add this function to helpers.go ---
-
 // searchSecrets performs regex search on Secrets
 func searchSecrets(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
 	defer wg.Done()
@@ -848,4 +785,55 @@ func searchSecrets(re *regexp.Regexp, clients []KubeClient, results chan<- Searc
 		}(client)
 	}
 	internalWg.Wait()
+}
+
+// parseContainer extracts full technical info from a v1.Container
+// Used by Detail Views to populate ContainerInfo structs
+func parseContainer(c v1.Container) ContainerInfo {
+	info := ContainerInfo{
+		Name:    c.Name,
+		Image:   c.Image,
+		State:   "Unknown",
+		Command: c.Command,
+		Env:     make(map[string]string),
+		Mounts:  make(map[string]string),
+	}
+
+	// Parse Ports
+	for _, p := range c.Ports {
+		info.Ports = append(info.Ports, fmt.Sprintf("%s:%d/%s", p.Name, p.ContainerPort, p.Protocol))
+	}
+
+	// Parse Env Vars
+	for _, e := range c.Env {
+		if e.Value != "" {
+			info.Env[e.Name] = e.Value
+		} else if e.ValueFrom != nil {
+			if e.ValueFrom.SecretKeyRef != nil {
+				info.Env[e.Name] = "from(secret)"
+			} else if e.ValueFrom.ConfigMapKeyRef != nil {
+				info.Env[e.Name] = "from(configmap)"
+			} else if e.ValueFrom.FieldRef != nil {
+				info.Env[e.Name] = fmt.Sprintf("from(field:%s)", e.ValueFrom.FieldRef.FieldPath)
+			} else {
+				info.Env[e.Name] = "from(reference)"
+			}
+		}
+	}
+
+	// Parse Mounts
+	for _, m := range c.VolumeMounts {
+		info.Mounts[m.MountPath] = m.Name
+	}
+
+	// Parse Resources
+	req := c.Resources.Requests
+	lim := c.Resources.Limits
+	if len(req) > 0 || len(lim) > 0 {
+		info.Resources = fmt.Sprintf("CPU: %s/%s | Mem: %s/%s",
+			req.Cpu().String(), lim.Cpu().String(),
+			req.Memory().String(), lim.Memory().String())
+	}
+
+	return info
 }

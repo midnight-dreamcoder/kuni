@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // handleGetPods lists all pods from all clusters
@@ -23,6 +23,7 @@ func handleGetPods(pattern string) echo.HandlerFunc {
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
 		}
+		
 		base := PageBase{
 			Title:                "All Pods",
 			ActivePage:           "pods",
@@ -31,7 +32,9 @@ func handleGetPods(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		var allPods []PodInfo
@@ -171,6 +174,7 @@ func handleGetPodDetail(pattern string) echo.HandlerFunc {
 		if clusterContextName == "" || namespace == "" || podName == "" {
 			return c.String(400, "Missing required query parameters: cluster_name, namespace, name")
 		}
+
 		base := PageBase{
 			Title:                podName,
 			ActivePage:           "pods",
@@ -179,6 +183,7 @@ func handleGetPodDetail(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
 		clientset, err := findClient(pattern, clusterContextName)
@@ -297,6 +302,11 @@ func handleGetPodDetail(pattern string) echo.HandlerFunc {
 // handleGetPodLogs streams logs for a specific container
 func handleGetPodLogs(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
+		// [SECURITY] Strict Admin Check for Logs
+		if !CurrentConfig.IsAdmin {
+			return c.String(http.StatusForbidden, "⛔ Access Denied: Pod logs contain sensitive information.")
+		}
+
 		clusterName := c.QueryParam("cluster_name")
 		namespace := c.QueryParam("namespace")
 		podName := c.QueryParam("name")

@@ -20,6 +20,8 @@ func handleGetConfigMaps(pattern string) echo.HandlerFunc {
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
 		}
+		
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "All ConfigMaps",
 			ActivePage:           "configmaps",
@@ -28,7 +30,16 @@ func handleGetConfigMaps(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
+		// --- SECURITY CHECK ---
+		// If config.json says is_admin: false, redirect guests away.
+		if !base.IsAdmin {
+			return c.Redirect(302, "/overview?error=access_denied_admin_only")
+		}
+		// --- END CHECK ---
+
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
@@ -117,6 +128,8 @@ func handleGetConfigMapDetail(pattern string) echo.HandlerFunc {
 		if clusterContextName == "" || namespace == "" || cmName == "" {
 			return c.String(400, "Missing required query parameters: cluster_name, namespace, name")
 		}
+
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                cmName,
 			ActivePage:           "configmaps",
@@ -125,7 +138,15 @@ func handleGetConfigMapDetail(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
+		// --- SECURITY CHECK ---
+		if !base.IsAdmin {
+			return c.Redirect(302, "/overview?error=access_denied_admin_only")
+		}
+		// --- END CHECK ---
+
 		clientset, err := findClient(pattern, clusterContextName)
 		if err != nil {
 			base.ErrorLogs = append(base.ErrorLogs, err.Error())
@@ -173,6 +194,8 @@ func handleGetPVCs(pattern string) echo.HandlerFunc {
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
 		}
+
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "PersistentVolumeClaims",
 			ActivePage:           "pvcs",
@@ -181,7 +204,15 @@ func handleGetPVCs(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
+		// --- SECURITY CHECK ---
+		if !base.IsAdmin {
+			return c.Redirect(302, "/overview?error=access_denied_admin_only")
+		}
+		// --- END CHECK ---
+
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 
@@ -293,6 +324,8 @@ func handleGetPVCDetail(pattern string) echo.HandlerFunc {
 		if clusterContextName == "" || namespace == "" || pvcName == "" {
 			return c.String(400, "Missing required query parameters")
 		}
+
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                pvcName,
 			ActivePage:           "pvcs",
@@ -301,7 +334,15 @@ func handleGetPVCDetail(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
+		// --- SECURITY CHECK ---
+		if !base.IsAdmin {
+			return c.Redirect(302, "/overview?error=access_denied_admin_only")
+		}
+		// --- END CHECK ---
+
 		clientset, err := findClient(pattern, clusterContextName)
 		if err != nil {
 			base.ErrorLogs = append(base.ErrorLogs, err.Error())
@@ -421,6 +462,8 @@ func handleGetServiceAccounts(pattern string) echo.HandlerFunc {
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
 		}
+
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "Service Accounts",
 			ActivePage:           "serviceaccounts",
@@ -429,7 +472,16 @@ func handleGetServiceAccounts(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
+		// --- SECURITY CHECK ---
+		if !base.IsAdmin {
+			return c.Redirect(302, "/overview?error=access_denied_admin_only")
+		}
+		// --- END CHECK ---
+
+
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
@@ -514,6 +566,8 @@ func handleGetServiceAccountDetail(pattern string) echo.HandlerFunc {
 		if clusterContextName == "" || namespace == "" || saName == "" {
 			return c.String(400, "Missing required query parameters")
 		}
+
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                saName,
 			ActivePage:           "serviceaccounts",
@@ -522,7 +576,15 @@ func handleGetServiceAccountDetail(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
+		// --- SECURITY CHECK ---
+		if !base.IsAdmin {
+			return c.Redirect(302, "/overview?error=access_denied_admin_only")
+		}
+		// --- END CHECK ---
+
 		clientset, err := findClient(pattern, clusterContextName)
 		if err != nil {
 			base.ErrorLogs = append(base.ErrorLogs, err.Error())
@@ -613,8 +675,6 @@ func handleGetServiceAccountDetail(pattern string) echo.HandlerFunc {
 	}
 }
 
-// --- Add these handlers to handlers_config.go ---
-
 // handleGetSecrets lists all secrets
 func handleGetSecrets(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -622,15 +682,24 @@ func handleGetSecrets(pattern string) echo.HandlerFunc {
 		filesToProcess, err := getFilesToProcess(c, pattern)
 		if err != nil { return c.String(500, "Error finding kubeconfig files") }
 		
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "Secrets",
-			ActivePage:           "secrets", // <-- New
+			ActivePage:           "secrets",
 			SelectedClusterCount: selectedCount,
 			QueryString:          queryString,
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
+		// --- SECURITY CHECK ---
+		if !base.IsAdmin {
+			return c.Redirect(302, "/overview?error=access_denied_admin_only")
+		}
+		// --- END CHECK ---
+
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
@@ -695,10 +764,23 @@ func handleGetSecretDetail(pattern string) echo.HandlerFunc {
 		name := c.QueryParam("name")
 		if clusterContextName == "" || namespace == "" || name == "" { return c.String(400, "Missing params") }
 		
+		// [UPDATED] Injected IsAdmin
 		base := PageBase{
-			Title: name, ActivePage: "secrets", SelectedClusterCount: selectedCount,
-			QueryString: queryString, CacheBuster: cacheBuster, LastRefreshed: time.Now().Format(time.RFC1123),
+			Title:                name,
+			ActivePage:           "secrets",
+			SelectedClusterCount: selectedCount,
+			QueryString:          queryString,
+			CacheBuster:          cacheBuster,
+			LastRefreshed:        time.Now().Format(time.RFC1123),
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
+
+		// --- SECURITY CHECK ---
+		if !base.IsAdmin {
+			return c.Redirect(302, "/overview?error=access_denied_admin_only")
+		}
+		// --- END CHECK ---
+		
 		clientset, err := findClient(pattern, clusterContextName)
 		if err != nil { base.ErrorLogs = append(base.ErrorLogs, err.Error()); return c.Render(200, "secret-detail.html", SecretDetailPageData{PageBase: base}) }
 		

@@ -3,104 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ .Title }} - K8s Herd-Viewer</title>
+    <title>{{ .Title }} - K8s Universal Inspector</title>
     <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
-    <style>
-        .page-grid {
-            max-width: 1600px;
-            margin: 0 auto;
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 1.5rem;
-        }
-        .full-width {
-            grid-column: 1 / -1;
-        }
-        .page-subtitle {
-            font-size: 1.1rem;
-            font-weight: 400;
-            color: #7d899e; /* Dark theme text */
-            margin-top: -1.5rem;
-            margin-bottom: 1.5rem;
-        }
-
-        /* --- Tab Switcher Styles --- */
-        .tab-buttons {
-            display: flex;
-            border-bottom: 2px solid #3a4157; /* Dark theme */
-            margin-bottom: 1.5rem;
-            flex-wrap: wrap;
-        }
-        .tab-button {
-            padding: 0.75rem 1.25rem;
-            font-size: 1rem;
-            font-weight: 500;
-            color: #7d899e;
-            cursor: pointer;
-            border: none;
-            background: none;
-            border-bottom: 2px solid transparent;
-            margin-bottom: -2px;
-        }
-        .tab-button:hover { color: #e1e1e1; }
-        .tab-button.active {
-            color: #00ff9c; /* Hacker green */
-            border-bottom-color: #00ff9c;
-        }
-        
-        /* --- Nested Tab Styles --- */
-        .sub-tab-buttons {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-            padding: 1rem 1.5rem;
-            background: #1a1d24;
-            border-bottom: 1px solid #3a4157;
-        }
-        .sub-tab {
-            padding: 0.5rem 1rem;
-            font-size: 0.9rem;
-            font-weight: 500;
-            color: #7d899e;
-            cursor: pointer;
-            border: 1px solid #3a4157;
-            background: #232733;
-            border-radius: 6px;
-        }
-        .sub-tab.active {
-            color: #1a1d24;
-            background: #00ff9c;
-            border-color: #00ff9c;
-        }
-
-        .tab-panel { display: none; }
-        .tab-panel.active { display: block; }
-        .sub-tab-panel { display: none; }
-        .sub-tab-panel.active { display: block; }
-
-        /* Overview Box */
-        .overview-box {
-            background: #232733;
-            border-radius: 8px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.15);
-            overflow: hidden;
-            grid-column: 1 / -1;
-            border: 1px solid #3a4157;
-        }
-        .overview-box h2 {
-            margin: 0;
-            padding: 1rem 1.5rem;
-            background-color: #1a1d24;
-            border-bottom: 1px solid #3a4157;
-            font-size: 1.2rem;
-            color: #00ff9c;
-        }
-        .overview-list { list-style: none; padding: 1rem 1.5rem; margin: 0; }
-        .overview-list li { display: flex; padding: 0.75rem 0; border-bottom: 1px dashed #3a4157; }
-        .overview-list li:last-child { border-bottom: none; }
-        .overview-list li strong { width: 150px; flex-shrink: 0; color: #7d899e; }
-        .overview-list li span { word-break: break-all; }
-    </style>
 </head>
 <body>
 
@@ -108,182 +12,204 @@
 
     <main class="main-content">
         <h1>{{ .DeploymentName }}</h1>
-        <div class="page-subtitle">
-            Found in {{ len .ClusterNames }} cluster(s).
-        </div>
-
+        
         {{ if .ErrorLogs }}
-        <div class="errors" style="max-width: 1600px;">
+        <div class="errors">
             <h2>Errors</h2>
-            <ul>
-                {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
-            </ul>
+            <ul>{{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}</ul>
         </div>
         {{ end }}
-        
-        <div class="tab-buttons">
-            {{ if .ClusterNames }}
-                {{ range .ClusterNames }}
-                    <button class="tab-button" data-target="cluster-{{ . }}">
-                        {{ . }}
-                    </button>
-                {{ end }}
-            {{ else }}
-                <div class="no-data" style="padding: 1rem 0;">No matching deployments found in selected clusters.</div>
+
+        <div class="tabs-container">
+            {{ range $index, $cluster := .ClusterNames }}
+                <button class="tab-btn {{ if eq $index 0 }}active{{ end }}" 
+                        onclick="openTab('{{ $cluster }}', this)">
+                    {{ $cluster }}
+                </button>
             {{ end }}
         </div>
 
-        {{ range .ClusterNames }}
-            {{ $cluster := . }}
-            {{ $nsMap := index $.NamespaceNames $cluster }}
+        {{ range $index, $cluster := .ClusterNames }}
+            {{ $overview := index $.Overviews $cluster }}
+            {{ $nsMap := index $.Pods $cluster }}
+
+            {{ $details := "" }}
+            {{ $compName := "" }}
+            {{ range $name, $data := $overview }}
+                {{ $compName = $name }}
+                {{ $details = $data }}
+                {{ break }} {{ end }}
             
-            <div id="cluster-{{ $cluster }}" class="tab-panel page-grid">
+            <div id="tab-{{ $cluster }}" class="deployment-content {{ if eq $index 0 }}active{{ end }}">
                 
-                <div class="sub-tab-buttons full-width">
-                    {{ range $nsMap }}
-                        <span class="sub-tab" data-target="ns-{{ $cluster }}-{{ . }}">{{ . }}</span>
-                    {{ end }}
+                {{ if $details }}
+
+                <div class="ns-bar">
+                    <span class="ns-label">Namespace:</span>
+                    <div class="ns-pills">
+                        {{ $firstNs := true }}
+                        {{ range $ns, $pods := $nsMap }}
+                            <button class="ns-btn {{ if $firstNs }}active{{ end }}" 
+                                    onclick="switchNamespace('{{ $cluster }}', '{{ $ns }}', this)">
+                                {{ $ns }}
+                            </button>
+                            {{ $firstNs = false }}
+                        {{ end }}
+                        
+                        {{ if not $nsMap }}
+                            <span style="color:#666; font-style:italic; font-size:0.9rem;">No pods found</span>
+                        {{ end }}
+                    </div>
                 </div>
 
-                {{ range $nsMap }}
-                    {{ $namespace := . }}
-                    {{ $overview := index (index $.Overviews $cluster) $namespace }}
-                    {{ $pods := index (index $.Pods $cluster) $namespace }}
+                <div class="detail-grid">
                     
-                    <div id="ns-{{ $cluster }}-{{ $namespace }}" class="sub-tab-panel page-grid">
-                        <div class="overview-box">
-                            <h2>Overview ({{ $cluster }} / {{ $namespace }})</h2>
-                            <ul class="overview-list">
-                                <li><strong>Status</strong> <span>{{ $overview.Status }} (Ready/Total)</span></li>
-                                <li><strong>Strategy</strong> <span>{{ $overview.Strategy }}</span></li>
-                                <li><strong>Selector</strong> <span>{{ $overview.Selector }}</span></li>
-                                <li><strong>Images</strong>
-                                    <span>
-                                        {{ range $overview.Images }} <span class="image-tag">{{ . }}</span> {{ end }}
-                                    </span>
-                                </li>
-                                <li><strong>Conditions</strong>
-                                    <span>
-                                        {{ range $overview.Conditions }} <span class="strategy-tag">{{ . }}</span> {{ end }}
-                                    </span>
-                                </li>
-                            </ul>
+                    <div class="detail-main">
+                        
+                        <div class="container" style="margin-top:0;">
+                            <h2>Rollout History</h2>
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Revision</th>
+                                        <th>Change Cause</th>
+                                        <th>Age</th>
+                                        <th>Images</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{ range $details.RolloutHistory }}
+                                    <tr>
+                                        <td><span class="cluster-tag">#{{ .Revision }}</span></td>
+                                        <td style="white-space: normal; max-width: 300px; font-style: italic;">
+                                            {{ if ne .ChangeCause "<none>" }}{{ .ChangeCause }}{{ else }}<span style="color:#6b7280">-</span>{{ end }}
+                                        </td>
+                                        <td>{{ .Age }}</td>
+                                        <td>
+                                            {{ range .Images }} <span class="image-tag" style="font-size:0.8rem;">{{ . }}</span> {{ end }}
+                                        </td>
+                                    </tr>
+                                    {{ else }}
+                                    <tr><td colspan="4" class="no-data">No history found.</td></tr>
+                                    {{ end }}
+                                </tbody>
+                            </table>
                         </div>
 
-                        <div class="container full-width">
-                            <h2>Pods ({{ len $pods }})</h2>
-                            <table id="table-{{ $cluster }}-{{ $namespace }}">
+                        <div class="container">
+                            <h2>Pods</h2>
+                            <table>
                                 <thead>
                                     <tr>
                                         <th>Name</th>
                                         <th>Ready</th>
                                         <th>Status</th>
-                                        <th>Reason</th>
                                         <th>Restarts</th>
-                                        <th>Pod IP</th>
                                         <th>Node</th>
-                                        <th>Age</th>
                                     </tr>
                                 </thead>
-                                <tbody>
-                                    {{ range $pods }}
-                                    <tr>
-                                        <td>
-                                            <a href="{{ MakeURL $.QueryString "/pod/detail" "name" .Name "namespace" $namespace "cluster_name" $cluster }}" class="deployment-link">
-                                                {{ .Name }}
-                                            </a>
-                                        </td>
-                                        <td>{{ .Ready }}</td>
-                                        <td><span class="status status-{{ .Status | ToLower }}">{{ .Status }}</span></td>
-                                        <td class="reason-col">{{ .Reason }}</td>
-                                        <td>{{ .Restarts }}</td>
-                                        <td>{{ .PodIP }}</td>
-                                        <td>{{ .Node }}</td>
-                                        <td>{{ .Age }}</td>
-                                    </tr>
-                                    {{ else }}
-                                    <tr>
-                                        <td colspan="8" class="no-data">No pods found for this deployment.</td>
-                                    </tr>
-                                    {{ end }}
-                                </tbody>
+                                
+                                {{ $firstNsBody := true }}
+                                {{ range $ns, $podList := $nsMap }}
+                                    <tbody id="pods-{{ $cluster }}-{{ $ns }}" class="pods-tbody {{ if $firstNsBody }}active{{ end }}">
+                                        {{ range $podList }}
+                                        <tr>
+                                            <td>
+                                                <a href="{{ MakeURL $.QueryString "/pod/detail" "name" .Name "namespace" .Namespace "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a>
+                                            </td>
+                                            <td>{{ .Ready }}</td>
+                                            <td><span class="status status-{{ .Status | ToLower }}">{{ .Status }}</span></td>
+                                            <td>{{ .Restarts }}</td>
+                                            <td><a href="{{ MakeURL $.QueryString "/node/detail" "name" .Node "cluster_name" .Cluster }}" class="deployment-link">{{ .Node }}</a></td>
+                                        </tr>
+                                        {{ end }}
+                                    </tbody>
+                                    {{ $firstNsBody = false }}
+                                {{ else }}
+                                    <tbody><tr><td colspan="5" class="no-data">No pods found in this cluster.</td></tr></tbody>
+                                {{ end }}
                             </table>
                         </div>
                     </div>
-                {{ end }}
-            </div>
+
+                    <div class="detail-sidebar">
+                        
+                        <div class="overview-box">
+                            <h2>Rollout Status</h2>
+                            <div style="padding: 1.5rem;">
+                                {{ if $details.RolloutStatus.IsComplete }}
+                                    <div style="color: #10b981; font-weight: 600; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
+                                        <span>✔</span> Successfully rolled out
+                                    </div>
+                                {{ else }}
+                                    <div style="color: #f59e0b; font-weight: 600; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem; animation: pulse 2s infinite;">
+                                        <span>⟳</span> Rolling out...
+                                    </div>
+                                    <div style="margin-top: 0.75rem; font-size: 0.9rem; line-height: 1.4; color: #d1d5db; padding: 0.75rem; background: rgba(0,0,0,0.2); border-radius: 4px;">
+                                        {{ $details.RolloutStatus.Message }}
+                                    </div>
+                                {{ end }}
+                            </div>
+                        </div>
+
+                        <div class="overview-box">
+                            <h2>Overview</h2>
+                            <ul class="overview-list">
+                                <li><strong>Component</strong> <span>{{ $compName }}</span></li>
+                                <li><strong>Replicas</strong> <span>{{ $details.Status }} (Ready/Total)</span></li>
+                                <li><strong>Strategy</strong> <span class="strategy-tag">{{ $details.Strategy }}</span></li>
+                                <li><strong>Selector</strong> <span style="font-family: monospace; font-size: 0.85rem;">{{ $details.Selector }}</span></li>
+                            </ul>
+                        </div>
+
+                        <div class="overview-box">
+                            <h2>Images</h2>
+                            <div style="padding: 1rem 1.5rem;">
+                                {{ range $details.Images }}
+                                    <div style="margin-bottom: 0.5rem;"><span class="image-tag">{{ . }}</span></div>
+                                {{ end }}
+                            </div>
+                        </div>
+
+                        <div class="overview-box">
+                            <h2>Conditions</h2>
+                            <div class="key-value-list" style="padding: 1rem 1.5rem;">
+                                {{ range $details.Conditions }}
+                                    <div style="margin-bottom:0.5rem;"><span class="data-value">{{ . }}</span></div>
+                                {{ end }}
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                {{ else }}
+                    <div class="no-data">No deployment details available for this cluster.</div>
+                {{ end }} </div>
         {{ end }}
     </main>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // --- Top Level (Cluster) Tab Logic ---
-            const clusterButtons = document.querySelectorAll('.tab-button');
-            const clusterPanels = document.querySelectorAll('.tab-panel');
+        function openTab(clusterName, btn) {
+            document.querySelectorAll('.deployment-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById('tab-' + clusterName).classList.add('active');
+            btn.classList.add('active');
+        }
 
-            function switchClusterTab(targetId) {
-                clusterPanels.forEach(panel => panel.classList.remove('active'));
-                clusterButtons.forEach(button => button.classList.remove('active'));
-                
-                const targetPanel = document.getElementById(targetId);
-                if (targetPanel) {
-                    targetPanel.classList.add('active');
-                    // Activate the *first* sub-tab within this panel
-                    const firstSubTab = targetPanel.querySelector('.sub-tab');
-                    if(firstSubTab) {
-                        switchSubTab(firstSubTab.dataset.target);
-                    }
-                }
-                const targetButton = document.querySelector(`.tab-button[data-target="${targetId}"]`);
-                if (targetButton) {
-                    targetButton.classList.add('active');
-                }
-            }
+        function switchNamespace(cluster, ns, btn) {
+            const activeTab = document.getElementById('tab-' + cluster);
+            
+            // Toggle Pills
+            activeTab.querySelectorAll('.ns-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
 
-            // --- Sub-Tab (Namespace) Logic ---
-            const subTabButtons = document.querySelectorAll('.sub-tab');
-            const subTabPanels = document.querySelectorAll('.sub-tab-panel');
-
-            function switchSubTab(targetId) {
-                const targetPanel = document.getElementById(targetId);
-                if (!targetPanel) return;
-
-                // Get all sibling panels and buttons
-                const parent = targetPanel.parentElement;
-                parent.querySelectorAll('.sub-tab-panel').forEach(panel => panel.classList.remove('active'));
-                
-                // This was the bug: it was selecting *all* sub-tabs
-                const buttonParent = document.querySelector(`.sub-tab[data-target="${targetId}"]`).parentElement;
-                buttonParent.querySelectorAll('.sub-tab').forEach(button => button.classList.remove('active'));
-
-                targetPanel.classList.add('active');
-                const targetButton = document.querySelector(`.sub-tab[data-target="${targetId}"]`);
-                if (targetButton) {
-                    targetButton.classList.add('active');
-                }
-            }
-
-            // Add click event for Cluster tabs
-            clusterButtons.forEach(button => {
-                button.addEventListener('click', () => switchClusterTab(button.dataset.target));
-            });
-
-            // Add click event for Namespace tabs
-            subTabButtons.forEach(button => {
-                button.addEventListener('click', () => switchSubTab(button.dataset.target));
-            });
-
-            // --- Activate the first tab on page load ---
-            const firstClusterButton = document.querySelector('.tab-button');
-            if (firstClusterButton) {
-                switchClusterTab(firstClusterButton.dataset.target);
-            }
-        });
-
-        // Auto-refresh
-        // setTimeout(() => {
-        //     location.reload();
-        // }, 5000);
+            // Toggle Pod Tables
+            activeTab.querySelectorAll('.pods-tbody').forEach(body => body.classList.remove('active'));
+            const targetId = 'pods-' + cluster + '-' + ns;
+            const targetBody = document.getElementById(targetId);
+            if(targetBody) targetBody.classList.add('active');
+        }
     </script>
 </body>
 </html>
