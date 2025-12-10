@@ -32,6 +32,7 @@ type PageBase struct {
 	QueryString          string
 	CacheBuster          string
 	ErrorLogs            []string
+	SuccessLogs          []string
 	LastRefreshed        string
 	IsSearchPage         bool
 	IsAdmin              bool   // If false, UI hides write actions

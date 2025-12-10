@@ -114,6 +114,7 @@ func main() {
 	e.GET("/cluster/detail", handleGetClusterDetail(pattern))
 	e.POST("/cluster/upload", handleUploadConfig(kubeDir))
 	e.GET("/cluster/discover-eks", handleDiscoverEKS(kubeDir, "us-east-2"))
+	e.GET("/cluster/discover-gke", handleDiscoverGKE(kubeDir))
 	e.GET("/nodes", handleGetNodes(pattern))
 	e.GET("/node/detail", handleGetNodeDetail(pattern))
 	e.GET("/events", handleGetEvents(pattern))

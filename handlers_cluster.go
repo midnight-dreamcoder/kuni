@@ -25,7 +25,6 @@ func handleGetClusters(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		selectedCount, queryString, cacheBuster := getRequestFilter(c)
 		
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "Cluster Status",
 			ActivePage:           "clusters",
@@ -35,6 +34,14 @@ func handleGetClusters(pattern string) echo.HandlerFunc {
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
 			IsAdmin:              CurrentConfig.IsAdmin,
+		}
+
+		if errParam := c.QueryParam("error"); errParam != "" {
+			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("❌ Error: %s", errParam))
+		}
+		if successParam := c.QueryParam("success"); successParam != "" {
+			// [NEW] Use the new SuccessLogs slice
+			base.SuccessLogs = append(base.SuccessLogs, fmt.Sprintf("✅ %s", successParam))
 		}
 
 		matchedFiles, err := filepath.Glob(pattern)
@@ -212,7 +219,6 @@ func handleGetClusterDetail(pattern string) echo.HandlerFunc {
 			return c.String(400, "Missing required query parameter: cluster_name")
 		}
 
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                clusterContextName,
 			ActivePage:           "clusters",
@@ -406,7 +412,6 @@ func handleGetClusterOverview(pattern string) echo.HandlerFunc {
 			return c.String(500, "Error finding kubeconfig files")
 		}
 
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "Cluster Overview",
 			ActivePage:           "overview",
@@ -555,7 +560,6 @@ func handleGetNodes(pattern string) echo.HandlerFunc {
 			return c.String(500, "Error finding kubeconfig files")
 		}
 		
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "All Nodes",
 			ActivePage:           "nodes",
@@ -674,7 +678,6 @@ func handleGetNodeDetail(pattern string) echo.HandlerFunc {
 			return c.String(400, "Missing required query parameters: cluster_name, name")
 		}
 
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                nodeName,
 			ActivePage:           "nodes",

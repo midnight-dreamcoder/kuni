@@ -14,6 +14,15 @@
 
         <h1>{{ .Title }}</h1>
         
+        {{ if .SuccessLogs }}
+        <div class="success-box">
+            <h2>Success</h2>
+            <ul>
+                {{ range .SuccessLogs }} <li>{{ . }}</li> {{ end }}
+            </ul>
+        </div>
+        {{ end }}
+
         {{ if .ErrorLogs }}
         <div class="errors">
             <h2>Errors</h2>
@@ -36,6 +45,12 @@
                 <label for="region" class="tool-label">AWS EKS:</label>
                 <input type="text" name="region" id="region" class="input-dark" placeholder="Region (e.g. us-east-1)">
                 <button type="submit" class="btn btn-accent">Discover</button>
+            </form>
+
+            <form class="tool-card" action="/cluster/discover-gke" method="GET">
+                <label for="project" class="tool-label">GCP GKE:</label>
+                <input type="text" name="project" id="project" class="input-dark" placeholder="Project ID" required>
+                <button type="submit" class="btn" style="background-color: #4285F4; color: #fff;">Discover</button>
             </form>
             
         </div>
@@ -175,7 +190,6 @@
                 const checkbox = row.querySelector('input[type="checkbox"]');
                 if (checkbox) {
                     // Manual toggle + manual style update
-                    // This avoids the .click() simulation issues
                     checkbox.checked = !checkbox.checked;
                     updateRowStyle(row);
                 }

@@ -626,3 +626,30 @@ td.api-server { white-space: normal !important; word-break: break-all; max-width
     from { opacity: 0; }
     to { opacity: 1; }
 }
+
+/* --- Add to style.css --- */
+
+/* Success Message Box */
+.success-box {
+    margin: 0 auto 1.5rem auto;
+    background-color: rgba(16, 185, 129, 0.1); /* Light Green */
+    border: 1px solid #10b981;
+    border-radius: 8px;
+    overflow: hidden;
+    max-width: 1600px;
+}
+.success-box h2 {
+    margin: 0;
+    padding: 0.75rem 1.5rem;
+    background-color: #10b981;
+    color: #fff;
+    font-size: 1rem;
+}
+.success-box ul {
+    margin: 0;
+    padding: 1rem 1.5rem 1rem 3rem;
+    color: #10b981;
+}
+.success-box li {
+    margin-bottom: 0.5rem;
+}
