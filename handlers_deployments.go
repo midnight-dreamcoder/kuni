@@ -23,7 +23,6 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 			return c.String(500, "Error finding kubeconfig files")
 		}
 
-		// [UPDATED] Injected CurrentConfig.IsAdmin
 		base := PageBase{
 			Title:                "Deployments",
 			ActivePage:           "deployments",
@@ -32,12 +31,42 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
 			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin, 
+			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
-		
+
+		if len(filesToProcess) == 0 {
+			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
+		}
+
+		// --- 1. Define Parallel Fetch Logic ---
+		// We need a struct to carry the ClusterName back with the results
+		type deploymentFetchResult struct {
+			ClusterName string
+			Deployments []appsv1.Deployment
+		}
+
+		fetchDeployments := func(client KubeClient) (deploymentFetchResult, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			
+			list, err := client.Clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return deploymentFetchResult{}, err
+			}
+			return deploymentFetchResult{
+				ClusterName: client.ContextName,
+				Deployments: list.Items,
+			}, nil
+		}
+
+		// --- 2. Execute ---
+		results, fetchErrors := ParallelFetch(clients, fetchDeployments)
+		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
+
+		// --- 3. Aggregate Results ---
 		deploymentAggregator := make(map[string]*AggregatedDeploymentView)
 		clusterDistribution := make(map[string]int)
 		
@@ -47,69 +76,48 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 		}
 		namespaceHealthMap := make(map[string]*nsHealth)
 
-		if len(filesToProcess) == 0 {
-			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
-		}
-
-		var wg sync.WaitGroup
-		var mutex sync.Mutex
-
-		for _, client := range clients {
-			wg.Add(1)
-			go func(client KubeClient) {
-				defer wg.Done()
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-				deploymentList, err := client.Clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
-				if err != nil {
-					mutex.Lock()
-					base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Cluster: %s | Error: Failed to list deployments (%v)", client.ContextName, err))
-					mutex.Unlock()
-					return
+		for _, res := range results {
+			for _, dep := range res.Deployments {
+				// Update Stats
+				clusterDistribution[res.ClusterName]++
+				
+				if _, ok := namespaceHealthMap[dep.Namespace]; !ok {
+					namespaceHealthMap[dep.Namespace] = &nsHealth{}
+				}
+				namespaceHealthMap[dep.Namespace].Total++
+				
+				var desiredReplicas int32 = 1
+				if dep.Spec.Replicas != nil {
+					desiredReplicas = *dep.Spec.Replicas
+				}
+				if dep.Status.ReadyReplicas != desiredReplicas {
+					namespaceHealthMap[dep.Namespace].Unhealthy++
 				}
 
-				mutex.Lock()
-				for _, dep := range deploymentList.Items {
-					clusterDistribution[client.ContextName]++
-					
-					if _, ok := namespaceHealthMap[dep.Namespace]; !ok {
-						namespaceHealthMap[dep.Namespace] = &nsHealth{}
+				// Aggregate Deployment View
+				entry, ok := deploymentAggregator[dep.Name]
+				if !ok {
+					entry = &AggregatedDeploymentView{
+						Name:       dep.Name,
+						Clusters:   make([]string, 0),
+						Namespaces: make([]string, 0),
+						Images:     make([]string, 0),
+						Strategies: make([]string, 0),
 					}
-					namespaceHealthMap[dep.Namespace].Total++
-					
-					var desiredReplicas int32 = 1
-					if dep.Spec.Replicas != nil {
-						desiredReplicas = *dep.Spec.Replicas
-					}
-					if dep.Status.ReadyReplicas != desiredReplicas {
-						namespaceHealthMap[dep.Namespace].Unhealthy++
-					}
-
-					entry, ok := deploymentAggregator[dep.Name]
-					if !ok {
-						entry = &AggregatedDeploymentView{
-							Name:       dep.Name,
-							Clusters:   make([]string, 0),
-							Namespaces: make([]string, 0),
-							Images:     make([]string, 0),
-							Strategies: make([]string, 0),
-						}
-						deploymentAggregator[dep.Name] = entry
-					}
-					entry.TotalReadyReplicas += int(dep.Status.ReadyReplicas)
-					entry.TotalDesiredReplicas += int(desiredReplicas)
-					entry.Clusters = append(entry.Clusters, client.ContextName)
-					entry.Namespaces = append(entry.Namespaces, dep.Namespace)
-					entry.Strategies = append(entry.Strategies, string(dep.Spec.Strategy.Type))
-					for _, container := range dep.Spec.Template.Spec.Containers {
-						entry.Images = append(entry.Images, container.Image)
-					}
+					deploymentAggregator[dep.Name] = entry
 				}
-				mutex.Unlock()
-			}(client)
+				entry.TotalReadyReplicas += int(dep.Status.ReadyReplicas)
+				entry.TotalDesiredReplicas += int(desiredReplicas)
+				entry.Clusters = append(entry.Clusters, res.ClusterName)
+				entry.Namespaces = append(entry.Namespaces, dep.Namespace)
+				entry.Strategies = append(entry.Strategies, string(dep.Spec.Strategy.Type))
+				for _, container := range dep.Spec.Template.Spec.Containers {
+					entry.Images = append(entry.Images, container.Image)
+				}
+			}
 		}
-		wg.Wait()
 
+		// --- 4. Sort and Prepare Data ---
 		var finalDeployments []AggregatedDeploymentView
 		for _, agg := range deploymentAggregator {
 			clusterSet := make(map[string]bool); for _, c := range agg.Clusters { clusterSet[c] = true }; agg.Clusters = make([]string, 0, len(clusterSet)); for c := range clusterSet { agg.Clusters = append(agg.Clusters, c) }; sort.Strings(agg.Clusters)
@@ -178,7 +186,6 @@ func handleGetDeploymentDetail(pattern string) echo.HandlerFunc {
 			return c.String(400, "Missing required query parameter: name")
 		}
 
-		// [UPDATED] Injected CurrentConfig.IsAdmin
 		base := PageBase{
 			Title:                deploymentName,
 			ActivePage:           "deployments",
@@ -196,11 +203,16 @@ func handleGetDeploymentDetail(pattern string) echo.HandlerFunc {
 		}
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
+		
+		// Note: We keep manual concurrency here because the logic is too complex
+		// (fetching deployments + pods + history + status) to fit neatly into
+		// a simple ParallelFetch call without a very complex result struct.
 		overviews := make(map[string]map[string]DeploymentDetailView)
 		podsMap := make(map[string]map[string][]PodInfo)
 		nsMap := make(map[string][]string)
 		var wg sync.WaitGroup
 		var mutex sync.Mutex
+		
 		if len(clients) == 0 {
 			base.ErrorLogs = append(base.ErrorLogs, "No clusters selected to search.")
 		}
@@ -242,21 +254,17 @@ func handleGetDeploymentDetail(pattern string) echo.HandlerFunc {
 						overview.Conditions = append(overview.Conditions, fmt.Sprintf("%s: %s (%s)", cond.Type, cond.Status, cond.Reason))
 					}
 					
-					// 1. Rollout Status - Uses strictly kubectl logic now
 					overview.RolloutStatus = getDeploymentRolloutStatus(&dep)
 
-					// 2. History & Pods
 					selector, selErr := metav1.LabelSelectorAsSelector(dep.Spec.Selector)
 					if selErr == nil {
 						overview.Selector = selector.String()
 						
-						// History
 						hist, histErr := getDeploymentRolloutHistory(ctx, client.Clientset, &dep)
 						if histErr == nil {
 							overview.RolloutHistory = hist
 						}
 
-						// Pods
 						podList, podErr := client.Clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector.String()})
 						if podErr == nil {
 							for _, pod := range podList.Items {
@@ -330,22 +338,19 @@ func getDeploymentRolloutStatus(dep *appsv1.Deployment) RolloutStatusInfo {
 		replicas = *dep.Spec.Replicas
 	}
 
-	// 0. CHECK FOR FAILURE (Critical Step Missing Before)
 	for _, c := range dep.Status.Conditions {
 		if c.Type == appsv1.DeploymentProgressing && c.Status == "False" && c.Reason == "ProgressDeadlineExceeded" {
 			return RolloutStatusInfo{
 				Message:    fmt.Sprintf("Deployment has failed: %s", c.Message),
-				IsComplete: true, // Stop the spinner, it's done (badly)
+				IsComplete: true, 
 			}
 		}
 	}
 
-	// 1. Check if the controller has seen the latest generation
 	if dep.Generation > dep.Status.ObservedGeneration {
 		return RolloutStatusInfo{Message: "Waiting for deployment spec update to be observed...", IsComplete: false}
 	}
 
-	// 2. Check if enough new replicas have been updated
 	if dep.Status.UpdatedReplicas < replicas {
 		return RolloutStatusInfo{
 			Message:    fmt.Sprintf("Waiting for rollout to finish: %d out of %d new replicas have been updated...", dep.Status.UpdatedReplicas, replicas),
@@ -353,7 +358,6 @@ func getDeploymentRolloutStatus(dep *appsv1.Deployment) RolloutStatusInfo {
 		}
 	}
 
-	// 3. Check if any old replicas are hanging around (Total > Updated)
 	if dep.Status.Replicas > dep.Status.UpdatedReplicas {
 		oldReplicas := dep.Status.Replicas - dep.Status.UpdatedReplicas
 		return RolloutStatusInfo{
@@ -362,7 +366,6 @@ func getDeploymentRolloutStatus(dep *appsv1.Deployment) RolloutStatusInfo {
 		}
 	}
 
-	// 4. Check if enough replicas are available
 	if dep.Status.AvailableReplicas < replicas {
 		return RolloutStatusInfo{
 			Message:    fmt.Sprintf("Waiting for rollout to finish: %d of %d updated replicas are available...", dep.Status.AvailableReplicas, replicas),
@@ -370,7 +373,6 @@ func getDeploymentRolloutStatus(dep *appsv1.Deployment) RolloutStatusInfo {
 		}
 	}
 
-	// If all checks pass, we are done.
 	return RolloutStatusInfo{Message: "Successfully rolled out", IsComplete: true}
 }
 
@@ -389,7 +391,6 @@ func getDeploymentRolloutHistory(ctx context.Context, client *kubernetes.Clients
 	var history []RolloutHistoryInfo
 
 	for _, rs := range rsList.Items {
-		// Manual Owner Check (Robust)
 		isOwned := false
 		for _, ref := range rs.OwnerReferences {
 			if ref.Kind == "Deployment" && ref.Name == dep.Name {
@@ -441,7 +442,6 @@ func handleGetReplicaSets(pattern string) echo.HandlerFunc {
 			return c.String(500, "Error finding kubeconfig files")
 		}
 
-		// [UPDATED] Injected CurrentConfig.IsAdmin
 		base := PageBase{
 			Title:                "All ReplicaSets",
 			ActivePage:           "replicasets",
@@ -455,60 +455,63 @@ func handleGetReplicaSets(pattern string) echo.HandlerFunc {
 
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
-		var allReplicaSets []ReplicaSetInfo
-		clusterDistribution := make(map[string]int)
-		namespaceDistribution := make(map[string]int)
-		ownerDistribution := make(map[string]int)
 
 		if len(filesToProcess) == 0 {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
 		}
 
-		var wg sync.WaitGroup
-		var mutex sync.Mutex
-
-		for _, client := range clients {
-			wg.Add(1)
-			go func(client KubeClient) {
-				defer wg.Done()
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				defer cancel()
-				rsList, err := client.Clientset.AppsV1().ReplicaSets("").List(ctx, metav1.ListOptions{})
-				if err != nil {
-					mutex.Lock()
-					base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Cluster: %s | Error: Failed to list replicasets (%v)", client.ContextName, err))
-					mutex.Unlock()
-					return
-				}
-
-				mutex.Lock()
-				for _, rs := range rsList.Items {
-					clusterDistribution[client.ContextName]++
-					namespaceDistribution[rs.Namespace]++
-					var desiredReplicas int32
-					if rs.Spec.Replicas != nil {
-						desiredReplicas = *rs.Spec.Replicas
-					}
-					readyStr := fmt.Sprintf("%d/%d/%d", rs.Status.ReadyReplicas, desiredReplicas, rs.Status.Replicas)
-					owner := "None"
-					if len(rs.OwnerReferences) > 0 {
-						owner = rs.OwnerReferences[0].Name
-					}
-					ownerDistribution[owner]++
-					allReplicaSets = append(allReplicaSets, ReplicaSetInfo{
-						Cluster:   client.ContextName,
-						Namespace: rs.Namespace,
-						Name:      rs.Name,
-						Ready:     readyStr,
-						Owner:     owner,
-						Age:       formatAge(rs.CreationTimestamp),
-					})
-				}
-				mutex.Unlock()
-			}(client)
+		// --- 1. Define Fetch Logic ---
+		type rsFetchResult struct {
+			ClusterName string
+			ReplicaSets []appsv1.ReplicaSet
 		}
-		wg.Wait()
 
+		fetchRS := func(client KubeClient) (rsFetchResult, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			list, err := client.Clientset.AppsV1().ReplicaSets("").List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return rsFetchResult{}, err
+			}
+			return rsFetchResult{ClusterName: client.ContextName, ReplicaSets: list.Items}, nil
+		}
+
+		// --- 2. Execute ---
+		results, fetchErrors := ParallelFetch(clients, fetchRS)
+		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
+
+		// --- 3. Aggregate ---
+		var allReplicaSets []ReplicaSetInfo
+		clusterDistribution := make(map[string]int)
+		namespaceDistribution := make(map[string]int)
+		ownerDistribution := make(map[string]int)
+
+		for _, res := range results {
+			for _, rs := range res.ReplicaSets {
+				clusterDistribution[res.ClusterName]++
+				namespaceDistribution[rs.Namespace]++
+				var desiredReplicas int32
+				if rs.Spec.Replicas != nil {
+					desiredReplicas = *rs.Spec.Replicas
+				}
+				readyStr := fmt.Sprintf("%d/%d/%d", rs.Status.ReadyReplicas, desiredReplicas, rs.Status.Replicas)
+				owner := "None"
+				if len(rs.OwnerReferences) > 0 {
+					owner = rs.OwnerReferences[0].Name
+				}
+				ownerDistribution[owner]++
+				allReplicaSets = append(allReplicaSets, ReplicaSetInfo{
+					Cluster:   res.ClusterName,
+					Namespace: rs.Namespace,
+					Name:      rs.Name,
+					Ready:     readyStr,
+					Owner:     owner,
+					Age:       formatAge(rs.CreationTimestamp),
+				})
+			}
+		}
+
+		// --- 4. Sort ---
 		var clusterStats []ClusterStat; for n, c := range clusterDistribution { clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c}) }; sort.Slice(clusterStats, func(i, j int) bool { return clusterStats[i].Name < clusterStats[j].Name })
 		
 		const topN = 10
@@ -556,7 +559,8 @@ func handleGetReplicaSets(pattern string) echo.HandlerFunc {
 	}
 }
 
-// handleGetReplicaSetDetail fetches a single replicaset
+// handleGetReplicaSetDetail remains unchanged...
+// (Code below is unmodified from original upload, just including for completeness if replacing full file)
 func handleGetReplicaSetDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		selectedCount, queryString, cacheBuster := getRequestFilter(c)
@@ -567,7 +571,6 @@ func handleGetReplicaSetDetail(pattern string) echo.HandlerFunc {
 			return c.String(400, "Missing required query parameters: cluster_name, namespace, name")
 		}
 
-		// [UPDATED] Injected CurrentConfig.IsAdmin
 		base := PageBase{
 			Title:                rsName,
 			ActivePage:           "replicasets",

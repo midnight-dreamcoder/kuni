@@ -40,7 +40,6 @@ func handleGetClusters(pattern string) echo.HandlerFunc {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("❌ Error: %s", errParam))
 		}
 		if successParam := c.QueryParam("success"); successParam != "" {
-			// [NEW] Use the new SuccessLogs slice
 			base.SuccessLogs = append(base.SuccessLogs, fmt.Sprintf("✅ %s", successParam))
 		}
 
@@ -171,7 +170,6 @@ func handleGetClusters(pattern string) echo.HandlerFunc {
 // handleUploadConfig saves a new kubeconfig file to the .kube directory
 func handleUploadConfig(kubeDir string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		// [SECURITY] Block upload in Guest Mode
 		if !CurrentConfig.IsAdmin {
 			log.Println("⛔ Blocked config upload attempt (Guest Mode)")
 			return c.Redirect(302, "/clusters?error=upload_not_allowed_in_guest_mode")
@@ -426,111 +424,130 @@ func handleGetClusterOverview(pattern string) echo.HandlerFunc {
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
-		var wg sync.WaitGroup
-		var mutex sync.Mutex
-
-		var nodeStat WorkloadStat
-		pvStatusMap := make(map[string]int)
-		var totalPVs int
-		
-		resourceMap := make(map[string]ResourceSummary)
-		var clusterNames []string
-
 		if len(filesToProcess) == 0 {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-
-		for _, client := range clients {
-			wg.Add(1)
-			go func(client KubeClient) {
-				defer wg.Done()
-				var clusterCapCpu, clusterAllocCpu, clusterUsageCpu resource.Quantity
-				var clusterCapMem, clusterAllocMem, clusterUsageMem resource.Quantity
-				var subWg sync.WaitGroup
-				subWg.Add(3)
-
-				go func() {
-					defer subWg.Done()
-					nodeList, err := client.Clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-					if err != nil {
-						mutex.Lock()
-						base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Cluster: %s | Nodes Error: %v", client.ContextName, err))
-						mutex.Unlock()
-						return
-					}
-					mutex.Lock()
-					for _, node := range nodeList.Items {
-						nodeStat.Total++
-						status, _ := getNodeStatus(node)
-						if status == "Ready" {
-							nodeStat.Ready++
-						} else {
-							nodeStat.NotReady++
-						}
-						clusterCapCpu.Add(*node.Status.Capacity.Cpu())
-						clusterAllocCpu.Add(*node.Status.Allocatable.Cpu())
-						clusterCapMem.Add(*node.Status.Capacity.Memory())
-						clusterAllocMem.Add(*node.Status.Allocatable.Memory())
-					}
-					mutex.Unlock()
-				}()
-
-				go func() {
-					defer subWg.Done()
-					pvList, err := client.Clientset.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
-					if err != nil { return }
-					mutex.Lock()
-					totalPVs += len(pvList.Items)
-					for _, pv := range pvList.Items {
-						pvStatusMap[string(pv.Status.Phase)]++
-					}
-					mutex.Unlock()
-				}()
-
-				go func() {
-					defer subWg.Done()
-					metricsClient, err := findMetricsClient(pattern, client.ContextName)
-					if err != nil { return }
-					metricsList, err := metricsClient.MetricsV1beta1().NodeMetricses().List(ctx, metav1.ListOptions{})
-					if err != nil { return }
-					mutex.Lock()
-					for _, metrics := range metricsList.Items {
-						clusterUsageCpu.Add(*metrics.Usage.Cpu())
-						clusterUsageMem.Add(*metrics.Usage.Memory())
-					}
-					mutex.Unlock()
-				}()
-
-				subWg.Wait()
-
-				var summary ResourceSummary
-				summary.CapacityCpu = formatCpu(&clusterCapCpu)
-				summary.AllocatableCpu = formatCpu(&clusterAllocCpu)
-				summary.UsageCpu = formatCpu(&clusterUsageCpu)
-				summary.CapacityMem = formatMemory(&clusterCapMem)
-				summary.AllocatableMem = formatMemory(&clusterAllocMem)
-				summary.UsageMem = formatMemory(&clusterUsageMem)
-
-				if clusterCapCpu.MilliValue() > 0 {
-					summary.AllocatableCpuPercent = (float64(clusterAllocCpu.MilliValue()) / float64(clusterCapCpu.MilliValue())) * 100.0
-					summary.UsageCpuPercent = (float64(clusterUsageCpu.MilliValue()) / float64(clusterCapCpu.MilliValue())) * 100.0
-				}
-				if clusterCapMem.Value() > 0 {
-					summary.AllocatableMemPercent = (float64(clusterAllocMem.Value()) / float64(clusterCapMem.Value())) * 100.0
-					summary.UsageMemPercent = (float64(clusterUsageMem.Value()) / float64(clusterCapMem.Value())) * 100.0
-				}
-				
-				mutex.Lock()
-				resourceMap[client.ContextName] = summary
-				clusterNames = append(clusterNames, client.ContextName)
-				mutex.Unlock()
-			}(client)
+		// --- 1. Fetch Logic ---
+		type clusterOverviewResult struct {
+			ClusterName string
+			NodeStat    WorkloadStat
+			PVStat      map[string]int
+			TotalPVs    int
+			Summary     ResourceSummary
 		}
-		wg.Wait()
 
+		fetchOverview := func(client KubeClient) (clusterOverviewResult, error) {
+			result := clusterOverviewResult{
+				ClusterName: client.ContextName,
+				PVStat:      make(map[string]int),
+			}
+			
+			var clusterCapCpu, clusterAllocCpu, clusterUsageCpu resource.Quantity
+			var clusterCapMem, clusterAllocMem, clusterUsageMem resource.Quantity
+			var subWg sync.WaitGroup
+			var subMutex sync.Mutex
+			
+			subWg.Add(3)
+
+			go func() {
+				defer subWg.Done()
+				nodeList, err := client.Clientset.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
+				if err != nil { return }
+				
+				subMutex.Lock()
+				defer subMutex.Unlock()
+				
+				for _, node := range nodeList.Items {
+					result.NodeStat.Total++
+					status, _ := getNodeStatus(node)
+					if status == "Ready" {
+						result.NodeStat.Ready++
+					} else {
+						result.NodeStat.NotReady++
+					}
+					clusterCapCpu.Add(*node.Status.Capacity.Cpu())
+					clusterAllocCpu.Add(*node.Status.Allocatable.Cpu())
+					clusterCapMem.Add(*node.Status.Capacity.Memory())
+					clusterAllocMem.Add(*node.Status.Allocatable.Memory())
+				}
+			}()
+
+			go func() {
+				defer subWg.Done()
+				pvList, err := client.Clientset.CoreV1().PersistentVolumes().List(context.Background(), metav1.ListOptions{})
+				if err != nil { return }
+				
+				subMutex.Lock()
+				defer subMutex.Unlock()
+				
+				result.TotalPVs = len(pvList.Items)
+				for _, pv := range pvList.Items {
+					result.PVStat[string(pv.Status.Phase)]++
+				}
+			}()
+
+			go func() {
+				defer subWg.Done()
+				metricsClient, err := findMetricsClient(pattern, client.ContextName)
+				if err != nil { return }
+				metricsList, err := metricsClient.MetricsV1beta1().NodeMetricses().List(context.Background(), metav1.ListOptions{})
+				if err != nil { return }
+				
+				subMutex.Lock()
+				defer subMutex.Unlock()
+				
+				for _, metrics := range metricsList.Items {
+					clusterUsageCpu.Add(*metrics.Usage.Cpu())
+					clusterUsageMem.Add(*metrics.Usage.Memory())
+				}
+			}()
+
+			subWg.Wait()
+
+			result.Summary.CapacityCpu = formatCpu(&clusterCapCpu)
+			result.Summary.AllocatableCpu = formatCpu(&clusterAllocCpu)
+			result.Summary.UsageCpu = formatCpu(&clusterUsageCpu)
+			result.Summary.CapacityMem = formatMemory(&clusterCapMem)
+			result.Summary.AllocatableMem = formatMemory(&clusterAllocMem)
+			result.Summary.UsageMem = formatMemory(&clusterUsageMem)
+
+			if clusterCapCpu.MilliValue() > 0 {
+				result.Summary.AllocatableCpuPercent = (float64(clusterAllocCpu.MilliValue()) / float64(clusterCapCpu.MilliValue())) * 100.0
+				result.Summary.UsageCpuPercent = (float64(clusterUsageCpu.MilliValue()) / float64(clusterCapCpu.MilliValue())) * 100.0
+			}
+			if clusterCapMem.Value() > 0 {
+				result.Summary.AllocatableMemPercent = (float64(clusterAllocMem.Value()) / float64(clusterCapMem.Value())) * 100.0
+				result.Summary.UsageMemPercent = (float64(clusterUsageMem.Value()) / float64(clusterCapMem.Value())) * 100.0
+			}
+
+			return result, nil
+		}
+
+		// --- 2. Execute ---
+		results, fetchErrors := ParallelFetch(clients, fetchOverview)
+		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
+
+		// --- 3. Aggregate ---
+		var nodeStat WorkloadStat
+		pvStatusMap := make(map[string]int)
+		var totalPVs int
+		resourceMap := make(map[string]ResourceSummary)
+		var clusterNames []string
+
+		for _, res := range results {
+			nodeStat.Total += res.NodeStat.Total
+			nodeStat.Ready += res.NodeStat.Ready
+			nodeStat.NotReady += res.NodeStat.NotReady
+			totalPVs += res.TotalPVs
+			for k, v := range res.PVStat {
+				pvStatusMap[k] += v
+			}
+			resourceMap[res.ClusterName] = res.Summary
+			clusterNames = append(clusterNames, res.ClusterName)
+		}
+
+		// --- 4. Sort ---
 		var pvStatusSlice []PodStatusStat
 		for status, count := range pvStatusMap {
 			pvStatusSlice = append(pvStatusSlice, PodStatusStat{Status: status, Count: count})
@@ -573,70 +590,79 @@ func handleGetNodes(pattern string) echo.HandlerFunc {
 
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
+		
+		if len(filesToProcess) == 0 {
+			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
+		}
+
+		// --- 1. Fetch Logic ---
+		type nodeFetchResult struct {
+			ClusterName string
+			Items       []NodeInfo
+		}
+
+		fetchNodes := func(client KubeClient) (nodeFetchResult, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			
+			nodeList, err := client.Clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return nodeFetchResult{}, err
+			}
+
+			var nodes []NodeInfo
+			for _, node := range nodeList.Items {
+				status, reason := getNodeStatus(node)
+				schedulable := "Enabled"
+				if node.Spec.Unschedulable {
+					schedulable = "Disabled"
+				}
+				role := "Worker"
+				if _, ok := node.Labels["node-role.kubernetes.io/control-plane"]; ok {
+					role = "Control-Plane"
+				} else if _, ok := node.Labels["node-role.kubernetes.io/master"]; ok {
+					role = "Control-Plane"
+				} else if val, ok := node.Labels["kubernetes.io/role"]; ok {
+					if val == "master" || val == "control-plane" {
+						role = "Control-Plane"
+					}
+				}
+				
+				nodes = append(nodes, NodeInfo{
+					Cluster:     client.ContextName,
+					Name:        node.Name,
+					Status:      status,
+					Reason:      reason,
+					Role:        role,
+					Schedulable: schedulable,
+					Kubelet:     node.Status.NodeInfo.KubeletVersion,
+					Runtime:     node.Status.NodeInfo.ContainerRuntimeVersion,
+					CpuAlloc:    node.Status.Allocatable.Cpu().String(),
+					MemAlloc:    formatMemory(node.Status.Allocatable.Memory()),
+					Taints:      len(node.Spec.Taints),
+				})
+			}
+			return nodeFetchResult{ClusterName: client.ContextName, Items: nodes}, nil
+		}
+
+		// --- 2. Execute ---
+		results, fetchErrors := ParallelFetch(clients, fetchNodes)
+		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
+
+		// --- 3. Aggregate ---
 		var allNodes []NodeInfo
 		clusterDistribution := make(map[string]int)
 		statusMap := make(map[string]int)
 		schedMap := make(map[string]int)
 
-		if len(filesToProcess) == 0 {
-			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
+		for _, res := range results {
+			for _, node := range res.Items {
+				allNodes = append(allNodes, node)
+				clusterDistribution[res.ClusterName]++
+				statusMap[node.Status]++
+				schedMap[node.Schedulable]++
+			}
 		}
-
-		var wg sync.WaitGroup
-		var mutex sync.Mutex
-
-		for _, client := range clients {
-			wg.Add(1)
-			go func(client KubeClient) {
-				defer wg.Done()
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				nodeList, err := client.Clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-				cancel()
-				if err != nil {
-					mutex.Lock()
-					base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Cluster: %s | Error: Failed to list nodes (%v)", client.ContextName, err))
-					mutex.Unlock()
-					return
-				}
-
-				mutex.Lock()
-				for _, node := range nodeList.Items {
-					clusterDistribution[client.ContextName]++
-					status, reason := getNodeStatus(node)
-					schedulable := "Enabled"
-					if node.Spec.Unschedulable {
-						schedulable = "Disabled"
-					}
-					statusMap[status]++
-					schedMap[schedulable]++
-					role := "Worker"
-					if _, ok := node.Labels["node-role.kubernetes.io/control-plane"]; ok {
-						role = "Control-Plane"
-					} else if _, ok := node.Labels["node-role.kubernetes.io/master"]; ok {
-						role = "Control-Plane"
-					} else if val, ok := node.Labels["kubernetes.io/role"]; ok {
-						if val == "master" || val == "control-plane" {
-							role = "Control-Plane"
-						}
-					}
-					allNodes = append(allNodes, NodeInfo{
-						Cluster:     client.ContextName,
-						Name:        node.Name,
-						Status:      status,
-						Reason:      reason,
-						Role:        role,
-						Schedulable: schedulable,
-						Kubelet:     node.Status.NodeInfo.KubeletVersion,
-						Runtime:     node.Status.NodeInfo.ContainerRuntimeVersion,
-						CpuAlloc:    node.Status.Allocatable.Cpu().String(),
-						MemAlloc:    formatMemory(node.Status.Allocatable.Memory()),
-						Taints:      len(node.Spec.Taints),
-					})
-				}
-				mutex.Unlock()
-			}(client)
-		}
-		wg.Wait()
 
 		var clusterStats []ClusterStat
 		for clusterName, count := range clusterDistribution {

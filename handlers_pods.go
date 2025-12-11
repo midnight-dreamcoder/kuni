@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -37,78 +36,91 @@ func handleGetPods(pattern string) echo.HandlerFunc {
 
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
-		var allPods []PodInfo
-		clusterDistribution := make(map[string]int)
-		namespaceDistribution := make(map[string]int)
+
 		if len(filesToProcess) == 0 {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
 		}
 
-		var wg sync.WaitGroup
-		var mutex sync.Mutex
-		
+		// --- 1. Define the Fetch Logic (Single Cluster) ---
+		fetchPods := func(client KubeClient) ([]PodInfo, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+
+			podList, err := client.Clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return nil, fmt.Errorf("failed to list pods: %v", err)
+			}
+
+			var localPods []PodInfo
+			for _, pod := range podList.Items {
+				readyCount := 0
+				for _, cs := range pod.Status.ContainerStatuses {
+					if cs.Ready {
+						readyCount++
+					}
+				}
+				readyStr := fmt.Sprintf("%d/%d", readyCount, len(pod.Spec.Containers))
+				
+				restartCount := 0
+				for _, cs := range pod.Status.ContainerStatuses {
+					restartCount += int(cs.RestartCount)
+				}
+				
+				nodeName := pod.Spec.NodeName
+				if nodeName == "" {
+					nodeName = "N/A"
+				}
+
+				localPods = append(localPods, PodInfo{
+					Cluster:   client.ContextName,
+					Namespace: pod.Namespace,
+					Name:      pod.Name,
+					Ready:     readyStr,
+					Status:    string(pod.Status.Phase),
+					Reason:    getPodReason(pod),
+					Restarts:  restartCount,
+					Node:      nodeName,
+					PodIP:     pod.Status.PodIP,
+					QoS:       string(pod.Status.QOSClass),
+					Age:       formatAge(pod.CreationTimestamp),
+				})
+			}
+			return localPods, nil
+		}
+
+		// --- 2. Execute via ParallelFetch ---
+		// results is [][]PodInfo (a list of pod lists)
+		results, fetchErrors := ParallelFetch(clients, fetchPods)
+		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
+
+		// --- 3. Aggregate Results ---
+		var allPods []PodInfo
+		clusterDistribution := make(map[string]int)
+		namespaceDistribution := make(map[string]int)
 		podStatusMap := make(map[string]int)
 		reasonMap := make(map[string]int)
 
-		for _, client := range clients {
-			wg.Add(1)
-			go func(client KubeClient) {
-				defer wg.Done()
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				defer cancel()
-				podList, err := client.Clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
-				if err != nil {
-					mutex.Lock()
-					base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Cluster: %s | Error: Failed to list pods (%v)", client.ContextName, err))
-					mutex.Unlock()
-					return
+		for _, clusterPods := range results {
+			for _, pod := range clusterPods {
+				allPods = append(allPods, pod)
+				
+				// Update Stats
+				clusterDistribution[pod.Cluster]++
+				namespaceDistribution[pod.Namespace]++
+				podStatusMap[pod.Status]++
+				if pod.Reason != "" {
+					reasonMap[pod.Reason]++
 				}
-
-				mutex.Lock()
-				for _, pod := range podList.Items {
-					clusterDistribution[client.ContextName]++
-					namespaceDistribution[pod.Namespace]++
-					podStatusMap[string(pod.Status.Phase)]++
-					reason := getPodReason(pod)
-					if reason != "" {
-						reasonMap[reason]++
-					}
-
-					readyCount := 0
-					for _, cs := range pod.Status.ContainerStatuses {
-						if cs.Ready {
-							readyCount++
-						}
-					}
-					readyStr := fmt.Sprintf("%d/%d", readyCount, len(pod.Spec.Containers))
-					restartCount := 0
-					for _, cs := range pod.Status.ContainerStatuses {
-						restartCount += int(cs.RestartCount)
-					}
-					nodeName := pod.Spec.NodeName
-					if nodeName == "" {
-						nodeName = "N/A"
-					}
-					allPods = append(allPods, PodInfo{
-						Cluster:   client.ContextName,
-						Namespace: pod.Namespace,
-						Name:      pod.Name,
-						Ready:     readyStr,
-						Status:    string(pod.Status.Phase),
-						Reason:    reason,
-						Restarts:  restartCount,
-						Node:      nodeName,
-						PodIP:     pod.Status.PodIP,
-						QoS:       string(pod.Status.QOSClass),
-						Age:       formatAge(pod.CreationTimestamp),
-					})
-				}
-				mutex.Unlock()
-			}(client)
+			}
 		}
-		wg.Wait()
 
-		var clusterStats []ClusterStat; for n, c := range clusterDistribution { clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c}) }; sort.Slice(clusterStats, func(i, j int) bool { return clusterStats[i].Name < clusterStats[j].Name })
+		// --- 4. Sort and Format Data for View ---
+		// (This logic remains largely unchanged, just using the aggregated maps)
+		var clusterStats []ClusterStat
+		for n, c := range clusterDistribution { 
+			clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c}) 
+		}
+		sort.Slice(clusterStats, func(i, j int) bool { return clusterStats[i].Name < clusterStats[j].Name })
 		
 		var namespaceStats []NamespaceStat
 		for n, c := range namespaceDistribution {

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // handleGetConfigMaps lists all configmaps from all clusters
@@ -21,7 +21,6 @@ func handleGetConfigMaps(pattern string) echo.HandlerFunc {
 			return c.String(500, "Error finding kubeconfig files")
 		}
 		
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "All ConfigMaps",
 			ActivePage:           "configmaps",
@@ -34,59 +33,59 @@ func handleGetConfigMaps(pattern string) echo.HandlerFunc {
 		}
 
 		// --- SECURITY CHECK ---
-		// If config.json says is_admin: false, redirect guests away.
 		if !base.IsAdmin {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
 		}
-		// --- END CHECK ---
 
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
-		var allConfigMaps []ConfigMapInfo
-		clusterDistribution := make(map[string]int)
-		namespaceDistribution := make(map[string]int)
-
 		if len(filesToProcess) == 0 {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
 		}
 
-		var wg sync.WaitGroup
-		var mutex sync.Mutex
-
-		for _, client := range clients {
-			wg.Add(1)
-			go func(client KubeClient) {
-				defer wg.Done()
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				defer cancel()
-				
-				cmList, err := client.Clientset.CoreV1().ConfigMaps("").List(ctx, metav1.ListOptions{})
-				if err != nil {
-					mutex.Lock()
-					base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Cluster: %s | Error: Failed to list configmaps (%v)", client.ContextName, err))
-					mutex.Unlock()
-					return
-				}
-
-				mutex.Lock()
-				for _, cm := range cmList.Items {
-					clusterDistribution[client.ContextName]++
-					namespaceDistribution[cm.Namespace]++
-					
-					allConfigMaps = append(allConfigMaps, ConfigMapInfo{
-						Cluster:   client.ContextName,
-						Namespace: cm.Namespace,
-						Name:      cm.Name,
-						DataKeys:  len(cm.Data),
-						Age:       formatAge(cm.CreationTimestamp),
-					})
-				}
-				mutex.Unlock()
-			}(client)
+		// --- 1. Define Fetch Logic ---
+		type cmFetchResult struct {
+			ClusterName string
+			Items       []v1.ConfigMap
 		}
-		wg.Wait()
 
+		fetchCMs := func(client KubeClient) (cmFetchResult, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			
+			list, err := client.Clientset.CoreV1().ConfigMaps("").List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return cmFetchResult{}, err
+			}
+			return cmFetchResult{ClusterName: client.ContextName, Items: list.Items}, nil
+		}
+
+		// --- 2. Execute ---
+		results, fetchErrors := ParallelFetch(clients, fetchCMs)
+		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
+
+		// --- 3. Aggregate ---
+		var allConfigMaps []ConfigMapInfo
+		clusterDistribution := make(map[string]int)
+		namespaceDistribution := make(map[string]int)
+
+		for _, res := range results {
+			for _, cm := range res.Items {
+				clusterDistribution[res.ClusterName]++
+				namespaceDistribution[cm.Namespace]++
+				
+				allConfigMaps = append(allConfigMaps, ConfigMapInfo{
+					Cluster:   res.ClusterName,
+					Namespace: cm.Namespace,
+					Name:      cm.Name,
+					DataKeys:  len(cm.Data),
+					Age:       formatAge(cm.CreationTimestamp),
+				})
+			}
+		}
+
+		// --- 4. Stats & Sort ---
 		var clusterStats []ClusterStat; for n, c := range clusterDistribution { clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c}) }; sort.Slice(clusterStats, func(i, j int) bool { return clusterStats[i].Name < clusterStats[j].Name })
 		
 		const topN = 10
@@ -129,7 +128,6 @@ func handleGetConfigMapDetail(pattern string) echo.HandlerFunc {
 			return c.String(400, "Missing required query parameters: cluster_name, namespace, name")
 		}
 
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                cmName,
 			ActivePage:           "configmaps",
@@ -141,11 +139,9 @@ func handleGetConfigMapDetail(pattern string) echo.HandlerFunc {
 			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
-		// --- SECURITY CHECK ---
 		if !base.IsAdmin {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
 		}
-		// --- END CHECK ---
 
 		clientset, err := findClient(pattern, clusterContextName)
 		if err != nil {
@@ -195,7 +191,6 @@ func handleGetPVCs(pattern string) echo.HandlerFunc {
 			return c.String(500, "Error finding kubeconfig files")
 		}
 
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "PersistentVolumeClaims",
 			ActivePage:           "pvcs",
@@ -207,73 +202,71 @@ func handleGetPVCs(pattern string) echo.HandlerFunc {
 			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
-		// --- SECURITY CHECK ---
 		if !base.IsAdmin {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
 		}
-		// --- END CHECK ---
 
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
-
-		var allPVCs []PVCInfo
-		clusterDistribution := make(map[string]int)
-		namespaceDistribution := make(map[string]int)
-		statusDistribution := make(map[string]int)
 
 		if len(filesToProcess) == 0 {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
 		}
 
-		var wg sync.WaitGroup
-		var mutex sync.Mutex
-
-		for _, client := range clients {
-			wg.Add(1)
-			go func(client KubeClient) {
-				defer wg.Done()
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				defer cancel()
-				
-				pvcList, err := client.Clientset.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{})
-				if err != nil {
-					mutex.Lock()
-					base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Cluster: %s | Error: Failed to list PVCs (%v)", client.ContextName, err))
-					mutex.Unlock()
-					return
-				}
-
-				mutex.Lock()
-				for _, pvc := range pvcList.Items {
-					clusterDistribution[client.ContextName]++
-					namespaceDistribution[pvc.Namespace]++
-					statusDistribution[string(pvc.Status.Phase)]++
-
-					storage := "N/A"
-					if cap, ok := pvc.Status.Capacity[v1.ResourceStorage]; ok {
-						storage = formatMemory(&cap)
-					}
-					
-					storageClass := "None"
-					if pvc.Spec.StorageClassName != nil {
-						storageClass = *pvc.Spec.StorageClassName
-					}
-
-					allPVCs = append(allPVCs, PVCInfo{
-						Cluster:      client.ContextName,
-						Namespace:    pvc.Namespace,
-						Name:         pvc.Name,
-						Status:       string(pvc.Status.Phase),
-						VolumeName:   pvc.Spec.VolumeName,
-						Capacity:     storage,
-						StorageClass: storageClass,
-						Age:          formatAge(pvc.CreationTimestamp),
-					})
-				}
-				mutex.Unlock()
-			}(client)
+		// --- 1. Define Fetch Logic ---
+		type pvcFetchResult struct {
+			ClusterName string
+			Items       []v1.PersistentVolumeClaim
 		}
-		wg.Wait()
+
+		fetchPVCs := func(client KubeClient) (pvcFetchResult, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			list, err := client.Clientset.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return pvcFetchResult{}, err
+			}
+			return pvcFetchResult{ClusterName: client.ContextName, Items: list.Items}, nil
+		}
+
+		// --- 2. Execute ---
+		results, fetchErrors := ParallelFetch(clients, fetchPVCs)
+		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
+
+		// --- 3. Aggregate ---
+		var allPVCs []PVCInfo
+		clusterDistribution := make(map[string]int)
+		namespaceDistribution := make(map[string]int)
+		statusDistribution := make(map[string]int)
+
+		for _, res := range results {
+			for _, pvc := range res.Items {
+				clusterDistribution[res.ClusterName]++
+				namespaceDistribution[pvc.Namespace]++
+				statusDistribution[string(pvc.Status.Phase)]++
+
+				storage := "N/A"
+				if cap, ok := pvc.Status.Capacity[v1.ResourceStorage]; ok {
+					storage = formatMemory(&cap)
+				}
+				
+				storageClass := "None"
+				if pvc.Spec.StorageClassName != nil {
+					storageClass = *pvc.Spec.StorageClassName
+				}
+
+				allPVCs = append(allPVCs, PVCInfo{
+					Cluster:      res.ClusterName,
+					Namespace:    pvc.Namespace,
+					Name:         pvc.Name,
+					Status:       string(pvc.Status.Phase),
+					VolumeName:   pvc.Spec.VolumeName,
+					Capacity:     storage,
+					StorageClass: storageClass,
+					Age:          formatAge(pvc.CreationTimestamp),
+				})
+			}
+		}
 
 		// --- Stats ---
 		var clusterStats []ClusterStat; for n, c := range clusterDistribution { clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c}) }; sort.Slice(clusterStats, func(i, j int) bool { return clusterStats[i].Name < clusterStats[j].Name })
@@ -325,7 +318,6 @@ func handleGetPVCDetail(pattern string) echo.HandlerFunc {
 			return c.String(400, "Missing required query parameters")
 		}
 
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                pvcName,
 			ActivePage:           "pvcs",
@@ -337,11 +329,9 @@ func handleGetPVCDetail(pattern string) echo.HandlerFunc {
 			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
-		// --- SECURITY CHECK ---
 		if !base.IsAdmin {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
 		}
-		// --- END CHECK ---
 
 		clientset, err := findClient(pattern, clusterContextName)
 		if err != nil {
@@ -421,7 +411,6 @@ func handleGetPVCDetail(pattern string) echo.HandlerFunc {
 						Age:       formatAge(pod.CreationTimestamp),
 					}
 
-					// Added Mutex
 					mutex.Lock()
 					data.MountedBy = append(data.MountedBy, podInfo)
 					mutex.Unlock()
@@ -463,7 +452,6 @@ func handleGetServiceAccounts(pattern string) echo.HandlerFunc {
 			return c.String(500, "Error finding kubeconfig files")
 		}
 
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "Service Accounts",
 			ActivePage:           "serviceaccounts",
@@ -475,59 +463,56 @@ func handleGetServiceAccounts(pattern string) echo.HandlerFunc {
 			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
-		// --- SECURITY CHECK ---
 		if !base.IsAdmin {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
 		}
-		// --- END CHECK ---
-
 
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
-		var allSAs []ServiceAccountInfo
-		clusterDistribution := make(map[string]int)
-		namespaceDistribution := make(map[string]int)
-
 		if len(filesToProcess) == 0 {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
 		}
 
-		var wg sync.WaitGroup
-		var mutex sync.Mutex
-
-		for _, client := range clients {
-			wg.Add(1)
-			go func(client KubeClient) {
-				defer wg.Done()
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				defer cancel()
-				
-				saList, err := client.Clientset.CoreV1().ServiceAccounts("").List(ctx, metav1.ListOptions{})
-				if err != nil {
-					mutex.Lock()
-					base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Cluster: %s | Error: Failed to list service accounts (%v)", client.ContextName, err))
-					mutex.Unlock()
-					return
-				}
-
-				mutex.Lock()
-				for _, sa := range saList.Items {
-					clusterDistribution[client.ContextName]++
-					namespaceDistribution[sa.Namespace]++
-					
-					allSAs = append(allSAs, ServiceAccountInfo{
-						Cluster:   client.ContextName,
-						Namespace: sa.Namespace,
-						Name:      sa.Name,
-						Secrets:   len(sa.Secrets),
-						Age:       formatAge(sa.CreationTimestamp),
-					})
-				}
-				mutex.Unlock()
-			}(client)
+		// --- 1. Fetch ---
+		type saFetchResult struct {
+			ClusterName string
+			Items       []v1.ServiceAccount
 		}
-		wg.Wait()
+
+		fetchSAs := func(client KubeClient) (saFetchResult, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			list, err := client.Clientset.CoreV1().ServiceAccounts("").List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return saFetchResult{}, err
+			}
+			return saFetchResult{ClusterName: client.ContextName, Items: list.Items}, nil
+		}
+
+		// --- 2. Execute ---
+		results, fetchErrors := ParallelFetch(clients, fetchSAs)
+		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
+
+		// --- 3. Aggregate ---
+		var allSAs []ServiceAccountInfo
+		clusterDistribution := make(map[string]int)
+		namespaceDistribution := make(map[string]int)
+
+		for _, res := range results {
+			for _, sa := range res.Items {
+				clusterDistribution[res.ClusterName]++
+				namespaceDistribution[sa.Namespace]++
+				
+				allSAs = append(allSAs, ServiceAccountInfo{
+					Cluster:   res.ClusterName,
+					Namespace: sa.Namespace,
+					Name:      sa.Name,
+					Secrets:   len(sa.Secrets),
+					Age:       formatAge(sa.CreationTimestamp),
+				})
+			}
+		}
 
 		// Stats
 		var clusterStats []ClusterStat; for n, c := range clusterDistribution { clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c}) }; sort.Slice(clusterStats, func(i, j int) bool { return clusterStats[i].Name < clusterStats[j].Name })
@@ -567,7 +552,6 @@ func handleGetServiceAccountDetail(pattern string) echo.HandlerFunc {
 			return c.String(400, "Missing required query parameters")
 		}
 
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                saName,
 			ActivePage:           "serviceaccounts",
@@ -579,11 +563,9 @@ func handleGetServiceAccountDetail(pattern string) echo.HandlerFunc {
 			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
-		// --- SECURITY CHECK ---
 		if !base.IsAdmin {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
 		}
-		// --- END CHECK ---
 
 		clientset, err := findClient(pattern, clusterContextName)
 		if err != nil {
@@ -623,7 +605,6 @@ func handleGetServiceAccountDetail(pattern string) echo.HandlerFunc {
 		// 2. Get Pods using this SA
 		go func() {
 			defer wg.Done()
-			// Field selector is efficient for this
 			podFieldSelector := fmt.Sprintf("spec.serviceAccountName=%s", saName)
 			podList, podErr := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{FieldSelector: podFieldSelector})
 			if podErr != nil {
@@ -682,7 +663,6 @@ func handleGetSecrets(pattern string) echo.HandlerFunc {
 		filesToProcess, err := getFilesToProcess(c, pattern)
 		if err != nil { return c.String(500, "Error finding kubeconfig files") }
 		
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "Secrets",
 			ActivePage:           "secrets",
@@ -694,49 +674,55 @@ func handleGetSecrets(pattern string) echo.HandlerFunc {
 			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
-		// --- SECURITY CHECK ---
 		if !base.IsAdmin {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
 		}
-		// --- END CHECK ---
 
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
+		// --- 1. Fetch ---
+		type secretFetchResult struct {
+			ClusterName string
+			Items       []v1.Secret
+		}
+
+		fetchSecrets := func(client KubeClient) (secretFetchResult, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			list, err := client.Clientset.CoreV1().Secrets("").List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return secretFetchResult{}, err
+			}
+			return secretFetchResult{ClusterName: client.ContextName, Items: list.Items}, nil
+		}
+
+		// --- 2. Execute ---
+		results, fetchErrors := ParallelFetch(clients, fetchSecrets)
+		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
+		
+		// --- 3. Aggregate ---
 		var allSecrets []SecretInfo
 		clusterDistribution := make(map[string]int)
 		namespaceDistribution := make(map[string]int)
 		typeDistribution := make(map[string]int)
 
-		var wg sync.WaitGroup
-		var mutex sync.Mutex
-		
-		for _, client := range clients {
-			wg.Add(1)
-			go func(client KubeClient) {
-				defer wg.Done()
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				defer cancel()
-				list, err := client.Clientset.CoreV1().Secrets("").List(ctx, metav1.ListOptions{})
-				if err != nil {
-					mutex.Lock(); base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Cluster: %s | Error: %v", client.ContextName, err)); mutex.Unlock()
-					return
-				}
-				mutex.Lock()
-				for _, s := range list.Items {
-					clusterDistribution[client.ContextName]++
-					namespaceDistribution[s.Namespace]++
-					typeDistribution[string(s.Type)]++
-					
-					allSecrets = append(allSecrets, SecretInfo{
-						Cluster: client.ContextName, Namespace: s.Namespace, Name: s.Name,
-						Type: string(s.Type), KeyCount: len(s.Data), Age: formatAge(s.CreationTimestamp),
-					})
-				}
-				mutex.Unlock()
-			}(client)
+		for _, res := range results {
+			for _, s := range res.Items {
+				clusterDistribution[res.ClusterName]++
+				namespaceDistribution[s.Namespace]++
+				typeDistribution[string(s.Type)]++
+				
+				allSecrets = append(allSecrets, SecretInfo{
+					Cluster:   res.ClusterName,
+					Namespace: s.Namespace,
+					Name:      s.Name,
+					Type:      string(s.Type),
+					KeyCount:  len(s.Data),
+					Age:       formatAge(s.CreationTimestamp),
+				})
+			}
 		}
-		wg.Wait()
 		
 		// Stats
 		var clusterStats []ClusterStat; for n, c := range clusterDistribution { clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c}) }; sort.Slice(clusterStats, func(i, j int) bool { return clusterStats[i].Name < clusterStats[j].Name })
@@ -764,7 +750,6 @@ func handleGetSecretDetail(pattern string) echo.HandlerFunc {
 		name := c.QueryParam("name")
 		if clusterContextName == "" || namespace == "" || name == "" { return c.String(400, "Missing params") }
 		
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                name,
 			ActivePage:           "secrets",
@@ -775,11 +760,9 @@ func handleGetSecretDetail(pattern string) echo.HandlerFunc {
 			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
-		// --- SECURITY CHECK ---
 		if !base.IsAdmin {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
 		}
-		// --- END CHECK ---
 		
 		clientset, err := findClient(pattern, clusterContextName)
 		if err != nil { base.ErrorLogs = append(base.ErrorLogs, err.Error()); return c.Render(200, "secret-detail.html", SecretDetailPageData{PageBase: base}) }
@@ -805,7 +788,7 @@ func handleGetSecretDetail(pattern string) echo.HandlerFunc {
 			// We only send the keys and the raw bytes as string. 
 			// The Template will handle the decoding display logic.
 			for k, v := range s.Data {
-				data.Data[k] = string(v) // Keep raw (which is base64 decoded bytes in Go map, but actually k8s API returns bytes)
+				data.Data[k] = string(v) // Keep raw
 			}
 		}()
 		

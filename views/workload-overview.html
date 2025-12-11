@@ -8,82 +8,6 @@
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.0.2/dist/chartjs-chart-treemap.min.js"></script>
-    
-    <style>
-        /* 2x2 Grid */
-        .dashboard-grid {
-            max-width: 1600px;
-            margin: 0 auto 1.5rem auto;
-            display: grid;
-            grid-template-columns: 1fr 1fr; /* 2 columns */
-            gap: 1.5rem;
-        }
-        .dashboard-grid .full-width {
-            grid-column: 1 / -1;
-        }
-
-        /* Chart/Stat Widget Styles */
-        .stat-widget { padding: 0; }
-        .stat-widget h3 { padding: 1rem 1.5rem; }
-        
-        /* --- Stacked Bar Chart Styles --- */
-        .chart-container {
-            padding: 1.5rem;
-        }
-        .stacked-bar-container {
-            display: flex;
-            width: 100%;
-            height: 30px;
-            border-radius: 6px;
-            overflow: hidden;
-            background: #374151; /* Fallback for empty/NaN */
-            border: 1px solid #374151;
-            margin-bottom: 1.5rem;
-        }
-        .bar-segment {
-            height: 100%;
-            transition: width 0.3s ease-out; 
-            box-shadow: 0 0 10px 0px; 
-            cursor: help;
-        }
-        
-        /* Define segment colors (re-using status colors) */
-        .bar-segment.status-running { background: #10b981; box-shadow: 0 0 10px 0px #10b981; }
-        .bar-segment.status-succeeded { background: #22d3ee; box-shadow: 0 0 10px 0px #22d3ee; }
-        .bar-segment.status-pending { background: #f59e0b; box-shadow: 0 0 10px 0px #f59e0b; }
-        .bar-segment.status-failed { background: #ef4444; box-shadow: 0 0 10px 0px #ef4444; }
-        .bar-segment.status-unknown { background: #9ca3af; box-shadow: 0 0 10px 0px #9ca3af; }
-        .bar-segment.ready { background: #10b981; box-shadow: 0 0 10px 0px #10b981; }
-        .bar-segment.not-ready { background: #ef4444; box-shadow: 0 0 10px 0px #ef4444; }
-
-        /* Legend */
-        .chart-legend {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 1rem;
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 0.9rem;
-            color: #9ca3af;
-        }
-        .legend-item {
-            display: flex;
-            align-items: center;
-        }
-        .legend-color {
-            width: 12px;
-            height: 12px;
-            border-radius: 2px;
-            margin-right: 8px;
-        }
-        
-        /* Treemap Container */
-        .treemap-container {
-            height: 400px;
-            padding: 1rem;
-            cursor: pointer;
-        }
-    </style>
 </head>
 <body>
 
@@ -93,7 +17,7 @@
         <h1>{{ .Title }}</h1>
 
         {{ if .ErrorLogs }}
-        <div class="errors" style="max-width: 1600px;">
+        <div class="errors">
             <h2>Errors During Fetch</h2>
             <ul>
                 {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
@@ -101,7 +25,7 @@
         </div>
         {{ end }}
 
-        <div class="dashboard-grid">
+        <div class="stats-container">
             
             <div class="stat-widget full-width">
                 <h3>Pod Distribution by Namespace (Top 30) - Status Heatmap</h3>
@@ -284,7 +208,7 @@
                         name: "{{ $ns.Name }}",
                         value: {{ $ns.Count }},
                         color: "{{ $ns.Color }}",
-                        detail: "{{ $ns.ErrorDetail }}" // The detail exists here
+                        detail: "{{ $ns.ErrorDetail }}"
                     },
                     {{ end }}
                 ];
@@ -304,14 +228,10 @@
                                 if (ctx.type !== 'data') return 'transparent';
                                 const item = ctx.raw;
                                 if (!item || !item._data) return '#374151';
-                                
-                                // 1. Direct property
-                                if (item._data.color) return item._data.color;
-                                
-                                // 2. Children property (This is what actually runs)
                                 if (item._data.children && item._data.children.length > 0) {
                                     return item._data.children[0].color;
                                 }
+                                if (item._data.color) return item._data.color;
                                 return '#374151';
                             },
                             labels: {
@@ -353,15 +273,11 @@
                                         const item = itemContext.raw;
                                         let text = 'Pods: ' + item.v;
                                         let detail = '';
-
-                                        // *** THIS IS THE FIX ***
-                                        // Dig into children to find the 'detail' property
                                         if (item._data.children && item._data.children.length > 0) {
                                              detail = item._data.children[0].detail;
                                         } else if (item._data.detail) {
                                              detail = item._data.detail;
                                         }
-
                                         if (detail) {
                                             text += ' (' + detail + ')';
                                         }

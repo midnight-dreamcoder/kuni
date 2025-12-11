@@ -33,6 +33,7 @@ func main() {
 
 	// --- 2.1 Serve static files ---
 	e.File("/style.css", "views/style.css")
+	e.Static("/static", "views/static")
 
 	// --- 2.2 Initialize the custom template renderer ---
 	t := &TemplateRenderer{

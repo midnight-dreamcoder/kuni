@@ -11,213 +11,114 @@
     {{ template "sidebar" . }}
 
     <main class="main-content">
-
         <h1>{{ .Title }}</h1>
-        
-        {{ if .SuccessLogs }}
-        <div class="success-box">
-            <h2>Success</h2>
-            <ul>
-                {{ range .SuccessLogs }} <li>{{ . }}</li> {{ end }}
-            </ul>
+
+        <div class="action-toolbar" style="grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));">
+            
+            <div class="tool-card">
+                <span class="tool-label">Import:</span>
+                <form action="/cluster/upload" method="POST" enctype="multipart/form-data" class="upload-form" style="padding:0; flex-grow:1;">
+                    <input type="file" name="kubeconfig" required>
+                    <button type="submit" class="submit-button">Upload</button>
+                </form>
+            </div>
+            
+            <div class="tool-card">
+                <span class="tool-label">AWS:</span>
+                <form action="/cluster/discover-eks" method="GET" class="upload-form" style="padding:0; flex-grow:1;">
+                    <input type="text" name="region" class="input-dark" placeholder="Region (e.g. us-east-1)">
+                    <button type="submit" class="btn btn-primary">Scan EKS</button>
+                </form>
+            </div>
+
+            <div class="tool-card">
+                <span class="tool-label">GCP:</span>
+                <form action="/cluster/discover-gke" method="GET" class="upload-form" style="padding:0; flex-grow:1;">
+                    <input type="text" name="project" class="input-dark" placeholder="Project ID" required>
+                    <button type="submit" class="btn btn-accent">Scan GKE</button>
+                </form>
+            </div>
+
         </div>
-        {{ end }}
 
         {{ if .ErrorLogs }}
         <div class="errors">
             <h2>Errors</h2>
-            <ul>
-                {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
-            </ul>
+            <ul>{{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}</ul>
         </div>
         {{ end }}
 
-        {{ if .IsAdmin }}
-        <div class="action-toolbar">
-            
-            <form class="tool-card" action="/cluster/upload" method="POST" enctype="multipart/form-data">
-                <span class="tool-label">Add Cluster:</span>
-                <input type="file" name="kubeconfig" class="input-dark" style="border:none; padding:0;" required>
-                <button type="submit" class="btn btn-primary">Upload</button>
-            </form>
-
-            <form class="tool-card" action="/cluster/discover-eks" method="GET">
-                <label for="region" class="tool-label">AWS EKS:</label>
-                <input type="text" name="region" id="region" class="input-dark" placeholder="Region (e.g. us-east-1)">
-                <button type="submit" class="btn btn-accent">Discover</button>
-            </form>
-
-            <form class="tool-card" action="/cluster/discover-gke" method="GET">
-                <label for="project" class="tool-label">GCP GKE:</label>
-                <input type="text" name="project" id="project" class="input-dark" placeholder="Project ID" required>
-                <button type="submit" class="btn" style="background-color: #4285F4; color: #fff;">Discover</button>
-            </form>
-            
+        {{ if .SuccessLogs }}
+        <div class="success-box">
+            <h2>Success</h2>
+            <ul>{{ range .SuccessLogs }} <li>{{ . }}</li> {{ end }}</ul>
         </div>
         {{ end }}
 
         <div class="search-container">
-            <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="Search clusters by name, status, version, etc. (supports regex)">
+            <input type="text" id="searchInput" onkeyup="filterTable('searchInput', 'mainTable')" placeholder="Search clusters...">
         </div>
 
-        <form method="GET" style="margin-top: 1.5rem;">
-            <div class="container">
+        <div class="container">
+            <form method="GET" action="/clusters">
+                <div class="submit-bar">
+                    <button type="submit">Refresh Selected</button>
+                </div>
                 <table id="mainTable">
                     <thead>
                         <tr>
-                            <th class="checkbox-col"><input type="checkbox" id="checkAll"></th>
-                            <th>Cluster (Context)</th>
-                            <th>Provider</th>
-                            <th>Status</th>
-                            <th>K8s Version</th>
-                            <th>Nodes</th>
-                            <th>Latency</th>
+                            <th class="checkbox-col"><input type="checkbox" id="selectAll"></th>
+                            <th class="sortable-header" data-sort-type="string">Cluster Name</th>
+                            <th class="sortable-header" data-sort-type="string">Status</th>
+                            <th class="sortable-header" data-sort-type="string">Provider</th>
+                            <th class="sortable-header" data-sort-type="string">Version</th>
+                            <th class="sortable-header" data-sort-type="number">Nodes</th>
+                            <th class="sortable-header" data-sort-type="number" data-sort-key="latency">Latency</th>
                             <th>API Server</th>
                         </tr>
                     </thead>
-                    <tbody id="tableBody">
+                    <tbody>
                         {{ range .Clusters }}
-                        <tr>
+                        <tr class="{{ if index $.SelectedClusters .ConfigName }}row-selected{{ end }}">
                             <td class="checkbox-col">
-                                <input type="checkbox" name="c" value="{{ .Name }}" 
-                                    {{- if (index $.SelectedClusters .Name) }} checked {{- end }}>
+                                <input type="checkbox" name="c" value="{{ .ConfigName }}" {{ if index $.SelectedClusters .ConfigName }}checked{{ end }}>
                             </td>
                             <td>
                                 <a href="{{ MakeURL $.QueryString "/cluster/detail" "cluster_name" .Name }}" class="deployment-link">
                                     {{ .Name }}
                                 </a>
                             </td>
-                            
+                            <td><span class="status status-{{ .Status | ToLower }}">{{ .Status }}</span></td>
                             <td>
-                                {{ if eq .Provider "AWS" }}
-                                    <span class="provider-badge provider-aws">AWS</span>
-                                {{ else if eq .Provider "AWS (EKS)" }}
-                                    <span class="provider-badge provider-aws">EKS</span>
-                                {{ else if eq .Provider "GCP" }}
-                                    <span class="provider-badge provider-gcp">GCP</span>
-                                {{ else if eq .Provider "GCP (GKE)" }}
-                                    <span class="provider-badge provider-gcp">GKE</span>
-                                {{ else if eq .Provider "Azure" }}
-                                    <span class="provider-badge provider-azure">Azure</span>
-                                {{ else }}
-                                    <span class="provider-badge provider-private">Private</span>
-                                {{ end }}
-                            </td>
-
-                            <td>
-                                <span class="status status-{{ .Status | ToLower }}" title="{{ .Status }}">
-                                    {{ .Status }}
-                                </span>
+                                {{ if eq .Provider "AWS" }}<span class="provider-badge provider-aws">AWS</span>
+                                {{ else if eq .Provider "AWS (EKS)" }}<span class="provider-badge provider-aws">EKS</span>
+                                {{ else if eq .Provider "GCP" }}<span class="provider-badge provider-gcp">GCP</span>
+                                {{ else if eq .Provider "GCP (GKE)" }}<span class="provider-badge provider-gcp">GKE</span>
+                                {{ else if eq .Provider "Azure" }}<span class="provider-badge provider-azure">Azure</span>
+                                {{ else }}<span class="provider-badge provider-private">{{ .Provider }}</span>{{ end }}
                             </td>
                             <td>{{ .Version }}</td>
                             <td>{{ .NodeCount }}</td>
                             <td>{{ .Latency }}</td>
-                            <td class="api-server" title="{{ .ApiServer }}">{{ .ApiServer }}</td>
+                            <td class="api-server">{{ .ApiServer }}</td>
                         </tr>
                         {{ else }}
-                        <tr>
-                            <td colspan="8" class="no-data">No clusters found.</td>
-                        </tr>
+                        <tr><td colspan="8" class="no-data">No clusters found. Upload a kubeconfig to get started.</td></tr>
                         {{ end }}
                     </tbody>
                 </table>
-                
-                <div class="submit-bar">
-                    <button type="submit" formaction="/overview">View Overview for Selected</button>
-                    <button type="submit" formaction="/workload">View Workload for Selected</button>
-                </div>
-            </div>
-        </form>
-
+            </form>
+        </div>
     </main>
 
+    <script src="/static/js/table_utils.js"></script>
     <script>
-        // --- Regex Search Function ---
-        function filterTable() {
-            const searchInput = document.getElementById('searchInput');
-            const filter = searchInput.value;
-            const tableBody = document.getElementById("tableBody");
-            const tr = tableBody.getElementsByTagName("tr");
-            let regex;
-            let useRegex = true;
-            try {
-                regex = new RegExp(filter, 'i');
-                searchInput.classList.remove('regex-error');
-            } catch (e) {
-                useRegex = false;
-                searchInput.classList.add('regex-error');
-            }
-            for (let i = 0; i < tr.length; i++) {
-                if (tr[i].classList.contains('no-data')) continue;
-                const rowText = tr[i].textContent || tr[i].innerText;
-                let found = false;
-                if (useRegex) { found = regex.test(rowText); } 
-                else { found = rowText.toLowerCase().indexOf(filter.toLowerCase()) > -1; }
-                tr[i].style.display = found ? "" : "none";
-            }
-        }
-
-        // --- Row Clicking & Checkbox Logic ---
-        document.addEventListener('DOMContentLoaded', function() {
-            const tableBody = document.getElementById("tableBody");
-
-            function updateRowStyle(row) {
-                const checkbox = row.querySelector('input[type="checkbox"]');
-                if (checkbox && checkbox.checked) {
-                    row.classList.add('row-selected');
-                } else {
-                    row.classList.remove('row-selected');
-                }
-            }
-
-            // 1. Initial Style Setup
-            const rows = tableBody.querySelectorAll('tr');
-            rows.forEach(row => updateRowStyle(row));
-
-            // 2. Event Delegation for Clicks (Robust)
-            tableBody.addEventListener('click', function(e) {
-                const row = e.target.closest('tr');
-                if (!row) return;
-
-                // Don't trigger if clicking specific interactive elements
-                if (e.target.closest('a') || 
-                    e.target.closest('button') || 
-                    e.target.closest('input') ||
-                    e.target.closest('label')) {
-                    return;
-                }
-
-                const checkbox = row.querySelector('input[type="checkbox"]');
-                if (checkbox) {
-                    // Manual toggle + manual style update
-                    checkbox.checked = !checkbox.checked;
-                    updateRowStyle(row);
-                }
+        // Page-specific Logic: Select All Checkbox
+        document.getElementById('selectAll').addEventListener('change', function() {
+            const checkboxes = document.querySelectorAll('input[name="c"]');
+            checkboxes.forEach((cb) => {
+                cb.checked = this.checked;
             });
-
-            // 3. Listen for direct checkbox changes
-            tableBody.addEventListener('change', function(e) {
-                if (e.target.matches('input[type="checkbox"]')) {
-                    const row = e.target.closest('tr');
-                    if (row) updateRowStyle(row);
-                }
-            });
-
-            // "Check All" Header Handler
-            const checkAllBox = document.getElementById('checkAll');
-            if (checkAllBox) {
-                checkAllBox.addEventListener('click', function(event) {
-                    const isChecked = event.target.checked;
-                    rows.forEach(row => {
-                        if (row.style.display === 'none') return; // Skip filtered rows
-                        const checkbox = row.querySelector('input[type="checkbox"]');
-                        if (checkbox) {
-                            checkbox.checked = isChecked;
-                            updateRowStyle(row);
-                        }
-                    });
-                });
-            }
         });
     </script>
 </body>

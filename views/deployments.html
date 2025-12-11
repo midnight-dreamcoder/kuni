@@ -8,89 +8,6 @@
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.0.2/dist/chartjs-chart-treemap.min.js"></script>
-
-    <style>
-        /* Per-page width override */
-        .stats-container, .container, .search-container, .errors {
-            max-width: 1600px;
-        }
-
-        /* Grid Layout */
-        .stats-container {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1.5rem;
-            align-items: flex-start;
-        }
-        .full-width {
-            grid-column: 1 / -1;
-        }
-
-        /* Chart/Stat Widget Styles */
-        .stat-widget { padding: 0; }
-        .stat-widget h3 { padding: 1rem 1.5rem; }
-        
-        /* Stacked Bar Chart Styles */
-        .chart-container {
-            padding: 1.5rem;
-        }
-        .stacked-bar-container {
-            display: flex;
-            width: 100%;
-            height: 30px;
-            border-radius: 6px;
-            overflow: hidden;
-            background: #374151;
-            border: 1px solid #374151;
-            margin-bottom: 1.5rem;
-        }
-        .bar-segment {
-            height: 100%;
-            transition: width 0.3s ease-out; 
-            box-shadow: 0 0 10px 0px; 
-            cursor: help;
-        }
-        
-        /* Legend */
-        .chart-legend {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 1rem;
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 0.9rem;
-            color: #9ca3af;
-        }
-        .legend-item {
-            display: flex;
-            align-items: center;
-        }
-        .legend-color {
-            width: 12px;
-            height: 12px;
-            border-radius: 2px;
-            margin-right: 8px;
-        }
-        .bar-chart-list .bar-label-other {
-            font-weight: 700;
-            font-style: italic;
-            color: #9ca3af;
-        }
-
-        /* Treemap Container */
-        .treemap-container {
-            height: 350px;
-            padding: 1rem;
-            cursor: pointer;
-        }
-
-        /* Column Width Limiter */
-        #mainTable .col-tags {
-            max-width: 350px;
-            white-space: normal;
-            word-break: break-all;
-        }
-    </style>
 </head>
 <body>
 
@@ -176,7 +93,7 @@
         {{ end }}
 
         <div class="search-container">
-            <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="Search by deployment, cluster, or namespace...">
+            <input type="text" id="searchInput" onkeyup="filterTable('searchInput', 'mainTable')" placeholder="Search by deployment, cluster, or namespace...">
         </div>
 
         <div class="container" style="margin-top: 1.5rem;">
@@ -235,44 +152,11 @@
 
     </main>
 
-    <script>
-        // --- Search Function ---
-        function filterTable() {
-            let filter = document.getElementById('searchInput').value.toLowerCase();
-            let table = document.getElementById("mainTable");
-            let tr = table.getElementsByTagName("tbody")[0].getElementsByTagName("tr");
-            for (let i = 0; i < tr.length; i++) {
-                let rowText = tr[i].textContent || tr[i].innerText;
-                if (rowText.toLowerCase().indexOf(filter) > -1) {
-                    tr[i].style.display = "";
-                } else {
-                    tr[i].style.display = "none";
-                }
-            }
-        }
-        
-        document.addEventListener('DOMContentLoaded', function() {
-            
-            // --- Sorting Logic ---
-            const table = document.getElementById("mainTable");
-            const headerRow = document.getElementById("tableHeader");
-            const tableBody = document.getElementById("tableBody");
-            
-            if (table && headerRow && tableBody) {
-                const headers = headerRow.querySelectorAll('th.sortable-header');
-                headers.forEach((header, colIndex) => {
-                    header.addEventListener('click', () => {
-                        const sortType = header.dataset.sortType || 'string';
-                        const sortKey = header.dataset.sortKey;
-                        const currentAsc = header.classList.contains('sort-asc');
-                        const newAsc = !currentAsc; 
-                        headers.forEach(h => { h.classList.remove('sort-asc', 'sort-desc'); });
-                        if (newAsc) { header.classList.add('sort-asc'); } else { header.classList.add('sort-desc'); }
-                        sortRows(tableBody, colIndex, sortType, sortKey, newAsc);
-                    });
-                });
-            }
+    <script src="/static/js/table_utils.js"></script>
 
+    <script>
+        // --- Page-Specific Logic (Charts) ---
+        document.addEventListener('DOMContentLoaded', function() {
             // --- TREEMAP LOGIC ---
             const ctx = document.getElementById('treemapChart');
             if (ctx) {
@@ -368,47 +252,6 @@
                 });
             }
         });
-
-        // --- Sorting Helper Functions ---
-        function getCellValue(row, colIndex, sortType, sortKey) {
-            const cell = row.children[colIndex];
-            if (!cell) return '';
-            const value = (cell.firstElementChild?.textContent || cell.textContent || cell.innerText).trim();
-            switch (sortKey) {
-                case 'ready':
-                    const parts = value.split('/');
-                    if (parts.length !== 2) return 0;
-                    const ready = parseInt(parts[0], 10);
-                    const total = parseInt(parts[1], 10);
-                    if (isNaN(ready) || isNaN(total) || total === 0) {
-                        if (ready === 0 && total === 0) return 1;
-                        return 0;
-                    }
-                    return ready / total;
-                default:
-                    if (sortType === 'number') {
-                        return parseInt(value, 10) || 0;
-                    }
-                    return value.toLowerCase();
-            }
-        }
-
-        function sortRows(tableBody, colIndex, sortType, sortKey, asc) {
-            const rows = Array.from(tableBody.querySelectorAll('tr'));
-            const dirModifier = asc ? 1 : -1;
-            rows.sort((rowA, rowB) => {
-                const valA = getCellValue(rowA, colIndex, sortType, sortKey);
-                const valB = getCellValue(rowB, colIndex, sortType, sortKey);
-                if (sortType === 'number') {
-                    return (valA - valB) * dirModifier;
-                } else {
-                    return valA.localeCompare(valB) * dirModifier;
-                }
-            });
-            rows.forEach(row => {
-                tableBody.appendChild(row);
-            });
-        }
     </script>
 </body>
 </html>

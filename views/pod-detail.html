@@ -17,7 +17,7 @@
         </div>
 
         {{ if .ErrorLogs }}
-        <div class="errors" style="max-width: 1600px;">
+        <div class="errors">
             <h2>Errors</h2>
             <ul>
                 {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
@@ -58,7 +58,7 @@
                             
                             <div class="container-card-body">
                                 <h3>
-                                    <span class="status-icon" title="{{ .State }}">{{ if .Ready }}✅{{ else }}❌{{ end }}</span>
+                                    <span class="status-icon" title="{{ .State }}">{{ if .Ready }}✔{{ else }}⚠{{ end }}</span>
                                     {{ .Name }} (Init | {{ .State }})
                                 </h3>
                                 <span class="image-tag">{{ .Image }}</span>
@@ -110,7 +110,7 @@
                             
                             <div class="container-card-body">
                                 <h3>
-                                    <span class="status-icon" title="{{ .State }}">{{ if .Ready }}✅{{ else }}❌{{ end }}</span>
+                                    <span class="status-icon" title="{{ .State }}">{{ if .Ready }}✔{{ else }}⚠{{ end }}</span>
                                     {{ .Name }} (App | {{ .State }})
                                 </h3>
                                 <span class="image-tag">{{ .Image }}</span>
@@ -433,14 +433,14 @@
                 } finally {
                     logStreamActive = false;
                     logsButton.textContent = 'View Logs';
-                    // *** THIS IS THE FIX: We REMOVED showPanel(selectedContainer); here ***
-                    // This allows the log panel to stay open even after the stream ends.
                 }
             });
             
             // --- 4. Initial Load ---
             const initialContainerName = tabButtons[0].dataset.container;
-            showPanel(initialContainerName); 
+            if (initialContainerName) {
+                showPanel(initialContainerName);
+            }
         });
     </script>
 </body>

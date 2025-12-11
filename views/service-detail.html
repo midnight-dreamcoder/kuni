@@ -17,18 +17,15 @@
         </div>
 
         {{ if .ErrorLogs }}
-        <div class="errors" style="max-width: 1600px;">
+        <div class="errors">
             <h2>Errors</h2>
-            <ul>
-                {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
-            </ul>
+            <ul>{{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}</ul>
         </div>
         {{ end }}
         
         <div class="detail-grid">
             
             <div class="detail-main">
-                
                 <div class="container">
                     <h2>Ports</h2>
                     <table>
@@ -48,7 +45,7 @@
                                 <td><span class="port-tag">{{ .Port }}</span></td>
                                 <td>{{ .Protocol }}</td>
                                 <td>{{ .TargetPort }}</td>
-                                <td>{{ if gt .NodePort 0 }}{{ .NodePort }}{{ else }}-{{ end }}</td>
+                                <td>{{ if ne .NodePort 0 }}{{ .NodePort }}{{ else }}-{{ end }}</td>
                             </tr>
                             {{ else }}
                             <tr><td colspan="5" class="no-data">No ports defined.</td></tr>
@@ -56,34 +53,38 @@
                         </tbody>
                     </table>
                 </div>
-                
+
                 <div class="container">
-                    <h2>Endpoints (Backing Pods)</h2>
+                    <h2>Endpoints</h2>
                     <table>
                         <thead>
                             <tr>
                                 <th>IP</th>
-                                <th>Target</th>
                                 <th>Node</th>
-                                <th>Status</th>
+                                <th>Target</th>
+                                <th>Ready</th>
                             </tr>
                         </thead>
                         <tbody>
                             {{ range .Endpoints }}
                             <tr>
                                 <td>{{ .IP }}</td>
+                                <td>
+                                    <a href="{{ MakeURL $.QueryString "/node/detail" "name" .NodeName "cluster_name" $.ClusterName }}" class="deployment-link">
+                                        {{ .NodeName }}
+                                    </a>
+                                </td>
                                 <td>{{ .TargetRef }}</td>
-                                <td>{{ .NodeName }}</td>
                                 <td>
                                     {{ if .Ready }}
-                                    <span class="status status-ready">Ready</span>
+                                        <span class="status status-ready">Ready</span>
                                     {{ else }}
-                                    <span class="status status-notready">Not Ready</span>
+                                        <span class="status status-notready">Not Ready</span>
                                     {{ end }}
                                 </td>
                             </tr>
                             {{ else }}
-                            <tr><td colspan="4" class="no-data">No endpoints found (Service might be empty).</td></tr>
+                            <tr><td colspan="4" class="no-data">No endpoints found.</td></tr>
                             {{ end }}
                         </tbody>
                     </table>
@@ -92,7 +93,15 @@
                 <div class="container">
                     <h2>Events</h2>
                     <table>
-                        <thead><tr><th>Last Seen</th><th>Type</th><th>Reason</th><th>Count</th><th>Message</th></tr></thead>
+                        <thead>
+                            <tr>
+                                <th>Last Seen</th>
+                                <th>Type</th>
+                                <th>Reason</th>
+                                <th>Count</th>
+                                <th>Message</th>
+                            </tr>
+                        </thead>
                         <tbody>
                             {{ range .Events }}
                             <tr class="{{ if eq .Type "Warning" }}event-warning{{ else }}event-normal{{ end }}">
@@ -120,25 +129,25 @@
                         <li><strong>Age</strong> <span>{{ .Age }}</span></li>
                     </ul>
                 </div>
-                
+
                 <div class="overview-box">
                     <h2>External IPs</h2>
                     <div class="key-value-list" style="padding: 1rem 1.5rem;">
                         {{ range .ExternalIPs }}
-                        <div><span class="data-value" style="font-weight: 600;">{{ . }}</span></div>
+                            <div><span class="data-value">{{ . }}</span></div>
                         {{ else }}
-                        <span class="no-data" style="padding: 0.5rem 0;">None</span>
+                            <span class="no-data" style="padding: 0;">None</span>
                         {{ end }}
                     </div>
                 </div>
-                
+
                 <div class="overview-box">
-                    <h2>Selectors</h2>
+                    <h2>Selector</h2>
                     <div class="key-value-list" style="padding: 1rem 1.5rem;">
                         {{ range $k, $v := .Selector }}
-                        <div><span class="data-key">{{ $k }}</span> <span class="data-value">{{ $v }}</span></div>
+                            <div><span class="data-key">{{ $k }}</span> <span class="data-value">{{ $v }}</span></div>
                         {{ else }}
-                        <span class="no-data" style="padding: 0.5rem 0;">No selectors.</span>
+                            <span class="no-data" style="padding: 0;">No selector.</span>
                         {{ end }}
                     </div>
                 </div>

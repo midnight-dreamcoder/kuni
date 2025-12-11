@@ -5,80 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ .Title }} - K8s Universal Inspector</title>
     <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
-    
-    <style>
-        /* Per-page width override */
-        .stats-container, .container, .search-container, .errors {
-            max-width: 1600px;
-        }
-
-        /* 3-Column Grid */
-        .stats-container {
-            grid-template-columns: 1fr 1fr 1fr;
-            align-items: flex-start;
-        }
-
-        /* Chart/Stat Widget Styles */
-        .stat-widget { padding: 0; }
-        .stat-widget h3 { padding: 1rem 1.5rem; }
-        
-        /* --- Stacked Bar Chart Styles --- */
-        .chart-container {
-            padding: 1.5rem;
-        }
-        .stacked-bar-container {
-            display: flex;
-            width: 100%;
-            height: 30px;
-            border-radius: 6px;
-            overflow: hidden;
-            background: #374151;
-            border: 1px solid #374151;
-            margin-bottom: 1.5rem;
-        }
-        .bar-segment {
-            height: 100%;
-            transition: width 0.3s ease-out; 
-            box-shadow: 0 0 10px 0px; 
-            cursor: help;
-        }
-        
-        /* Legend */
-        .chart-legend {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 1rem;
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 0.9rem;
-            color: #9ca3af;
-        }
-        .legend-item {
-            display: flex;
-            align-items: center;
-        }
-        .legend-color {
-            width: 12px;
-            height: 12px;
-            border-radius: 2px;
-            margin-right: 8px;
-        }
-        .bar-chart-list .bar-label-other {
-            font-weight: 700;
-            font-style: italic;
-            color: #9ca3af;
-        }
-
-        /* Column Width Limiter */
-        #mainTable th, #mainTable td {
-            white-space: normal !important;
-        }
-        #mainTable .col-rs,
-        #mainTable .col-cluster,
-        #mainTable .col-namespace {
-            word-break: break-all;
-        }
-    </style>
 </head>
 <body>
 
@@ -91,7 +17,7 @@
             <span class="title-count">({{ .TotalReplicaSets }})</span>
         </h1>
 
-        <div class="stats-container" style="max-width: 1600px;">
+        <div class="stats-container three-col">
             
             <div class="stat-widget">
                 <h3>ReplicaSets by Cluster</h3>
@@ -179,7 +105,7 @@
         {{ end }}
 
         <div class="search-container">
-            <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="Search by replicaset, namespace, cluster, or owner...">
+            <input type="text" id="searchInput" onkeyup="filterTable('searchInput', 'mainTable')" placeholder="Search by replicaset, namespace, cluster, or owner...">
         </div>
 
         <div class="container" style="margin-top: 1.5rem;">
@@ -187,9 +113,9 @@
                 <thead id="tableHeader">
                     <tr>
                         <th class="sortable-header col-rs" data-sort-type="string">ReplicaSet</th>
-                        <th class="sortable-header" data-sort-type="number" data-sort-key="replicas">Replicas (Ready/Desired/Current)</th>
+                        <th class="sortable-header" data-sort-type="number">Replicas (Ready/Desired/Current)</th>
                         <th class="sortable-header" data-sort-type="string">Owned By</th>
-                        <th class="sortable-header" data-sort-type="number" data-sort-key="age">Age</th>
+                        <th class="sortable-header" data-sort-type="duration">Age</th>
                         <th class="sortable-header col-cluster" data-sort-type="string">Cluster</th>
                         <th class="sortable-header col-namespace" data-sort-type="string">Namespace</th>
                     </tr>
@@ -226,86 +152,6 @@
 
     </main>
 
-    <script>
-        // --- Search Function ---
-        function filterTable() {
-            let filter = document.getElementById('searchInput').value.toLowerCase();
-            let table = document.getElementById("mainTable");
-            let tr = table.getElementsByTagName("tbody")[0].getElementsByTagName("tr");
-            for (let i = 0; i < tr.length; i++) {
-                let rowText = tr[i].textContent || tr[i].innerText;
-                if (rowText.toLowerCase().indexOf(filter) > -1) {
-                    tr[i].style.display = "";
-                } else {
-                    tr[i].style.display = "none";
-                }
-            }
-        }
-        
-        // --- Auto-Refresh Removed ---
-
-        // --- Sorting Logic ---
-        document.addEventListener('DOMContentLoaded', function() {
-            
-            // --- Sorting Logic ---
-            const table = document.getElementById("mainTable");
-            const headerRow = document.getElementById("tableHeader");
-            const tableBody = document.getElementById("tableBody");
-            
-            if (table && headerRow && tableBody) {
-                const headers = headerRow.querySelectorAll('th.sortable-header');
-                headers.forEach((header, colIndex) => {
-                    header.addEventListener('click', () => {
-                        const sortType = header.dataset.sortType || 'string';
-                        const sortKey = header.dataset.sortKey;
-                        const currentAsc = header.classList.contains('sort-asc');
-                        const newAsc = !currentAsc; 
-                        headers.forEach(h => { h.classList.remove('sort-asc', 'sort-desc'); });
-                        if (newAsc) { header.classList.add('sort-asc'); } else { header.classList.add('sort-desc'); }
-                        sortRows(tableBody, colIndex, sortType, sortKey, newAsc);
-                    });
-                });
-            }
-
-            // --- Charting Logic Removed ---
-        });
-
-        // --- Sorting Helper Functions ---
-        function getCellValue(row, colIndex, sortType, sortKey) {
-            const cell = row.children[colIndex];
-            if (!cell) return '';
-            const value = (cell.firstElementChild?.textContent || cell.textContent || cell.innerText).trim();
-
-            switch (sortKey) {
-                case 'age':
-                    let seconds = 0;
-                    if (value.endsWith('d')) { seconds = parseInt(value, 10) * 86400; }
-                    else if (value.endsWith('h')) { seconds = parseInt(value, 10) * 3600; }
-                    else if (value.endsWith('m')) { seconds = parseInt(value, 10) * 60; }
-                    else if (value.endsWith('s')) { seconds = parseInt(value, 10); }
-                    return seconds;
-                case 'replicas': // "1/1/1" -> sort by first number (ready)
-                    const parts = value.split('/');
-                    return parseInt(parts[0], 10) || 0;
-                default:
-                    if (sortType === 'number') { return parseInt(value, 10) || 0; }
-                    return value.toLowerCase();
-            }
-        }
-
-        function sortRows(tableBody, colIndex, sortType, sortKey, asc) {
-            const rows = Array.from(tableBody.querySelectorAll('tr'));
-            const dirModifier = asc ? 1 : -1;
-            rows.sort((rowA, rowB) => {
-                const valA = getCellValue(rowA, colIndex, sortType, sortKey);
-                const valB = getCellValue(rowB, colIndex, sortType, sortKey);
-                if (sortType === 'number') { return (valA - valB) * dirModifier; }
-                else { return valA.localeCompare(valB) * dirModifier; }
-            });
-            rows.forEach(row => {
-                tableBody.appendChild(row);
-            });
-        }
-    </script>
+    <script src="/static/js/table_utils.js"></script>
 </body>
 </html>

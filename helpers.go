@@ -837,3 +837,30 @@ func parseContainer(c v1.Container) ContainerInfo {
 
 	return info
 }
+
+// ParallelFetch abstracts the logic of querying multiple clusters
+func ParallelFetch[T any](clients []KubeClient, fetchFn func(KubeClient) (T, error)) ([]T, []string) {
+    var wg sync.WaitGroup
+    var mutex sync.Mutex
+    results := make([]T, 0, len(clients))
+    errors := make([]string, 0)
+
+    for _, client := range clients {
+        wg.Add(1)
+        go func(c KubeClient) {
+            defer wg.Done()
+            res, err := fetchFn(c)
+            
+            mutex.Lock()
+            defer mutex.Unlock()
+            
+            if err != nil {
+                errors = append(errors, fmt.Sprintf("Cluster: %s | Error: %v", c.ContextName, err))
+            } else {
+                results = append(results, res)
+            }
+        }(client)
+    }
+    wg.Wait()
+    return results, errors
+}

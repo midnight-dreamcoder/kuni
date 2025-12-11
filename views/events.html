@@ -5,181 +5,100 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ .Title }} - K8s Universal Inspector</title>
     <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
-    
-    <style>
-        /* Per-page width override */
-        .stats-container, .container, .search-container, .errors {
-            max-width: 1600px;
-        }
-        /* 3-Column Grid */
-        .stats-container {
-            grid-template-columns: 1fr 1fr 1fr;
-            align-items: flex-start;
-        }
-        /* Chart/Stat Widget Styles */
-        .stat-widget { padding: 0; }
-        .stat-widget h3 { padding: 1rem 1.5rem; }
-        .chart-container {
-            padding: 1.5rem;
-        }
-        .stacked-bar-container {
-            display: flex;
-            width: 100%;
-            height: 30px;
-            border-radius: 6px;
-            overflow: hidden;
-            background: #374151;
-            border: 1px solid #374151;
-            margin-bottom: 1.5rem;
-        }
-        .bar-segment {
-            height: 100%;
-            transition: width 0.3s ease-out; 
-            box-shadow: 0 0 10px 0px; 
-            cursor: help;
-        }
-        /* Legend */
-        .chart-legend {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 1rem;
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 0.9rem;
-            color: #9ca3af;
-        }
-        .legend-item {
-            display: flex;
-            align-items: center;
-        }
-        .legend-color {
-            width: 12px;
-            height: 12px;
-            border-radius: 2px;
-            margin-right: 8px;
-        }
-        .bar-chart-list .bar-label-other {
-            font-weight: 700;
-            font-style: italic;
-            color: #9ca3af;
-        }
-        
-        /* --- Heatmap Styles --- */
-        .heatmap-container {
-            padding: 1.5rem;
-            overflow-x: auto; /* Scrollbar is on this container */
-        }
-        .heatmap {
-            border-collapse: separate;
-            border-spacing: 2px;
-        }
-        .heatmap th {
-            padding: 0.5rem;
-            font-weight: 600;
-            font-family: 'Space Grotesk', sans-serif;
-            white-space: nowrap;
-        }
-        .heatmap tbody th {
-            text-align: right;
-            padding-right: 1rem;
-            position: sticky; /* Stick the cluster names to the left */
-            left: 0;
-            background: #1F2937; /* Match widget background */
-        }
-        .heatmap td {
-            padding: 0; /* Remove padding for the inner div */
-            text-align: center;
-            font-weight: 700;
-            font-size: 1rem;
-            border-radius: 4px;
-            min-width: 50px;
-            cursor: pointer;
-        }
-        .heat-cell {
-            padding: 0.75rem;
-            display: block;
-        }
-        /* The heat levels */
-        .heat-0 { background: #374151; color: #6b7280; }
-        .heat-1 { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
-        .heat-2 { background: rgba(245, 158, 11, 0.6); color: #fff; }
-        .heat-3 { background: rgba(239, 68, 68, 0.7); color: #fff; }
-        .heat-4 { background: #ef4444; color: #fff; animation: pulse 1.5s infinite; }
-
-        @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
-        }
-        
-        /* --- THIS IS THE FIX: Correct Global Tooltip CSS --- */
-        #global-tooltip {
-            position: fixed;
-            z-index: 10000;
-            background: #111827;
-            color: #e5e7eb;
-            border: 1px solid #374151;
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            font-size: 0.9rem;
-            font-family: 'IBM Plex Mono', monospace;
-            pointer-events: none; /* Mouse ignores it, hits elements below */
-            display: none;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-            white-space: nowrap;
-        }
-        #global-tooltip strong {
-            color: #f59e0b;
-        }
-        /* --- END FIX --- */
-
-        #mainTable .col-obj,
-        #mainTable .col-message {
-            max-width: 350px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-    </style>
 </head>
 <body>
-
-    <div id="global-tooltip"></div>
 
     {{ template "sidebar" . }}
 
     <main class="main-content">
-        <h1>
-            {{ .Title }}
-            <span class="title-count">({{ .TotalEvents }})</span>
-        </h1>
+        <h1>{{ .Title }} <span class="title-count">({{ .TotalEvents }})</span></h1>
 
-        <div class="stat-widget" style="margin-bottom: 1.5rem;">
-            <h3>Warning Event Heatmap (Last Hour)</h3>
+        <div class="stats-container three-col">
+            <div class="stat-widget">
+                <h3>Warning Events by Cluster</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        {{ $colors := ColorSlice }}
+                        {{ $totalClusters := 0 }}{{ range .ClusterStats }}{{ $totalClusters = add $totalClusters .Count }}{{ end }}
+                        {{ range $i, $stat := .ClusterStats }}
+                            {{ $color := index $colors (mod $i 10) }}
+                            <div class="bar-segment" style="width: {{ printf "%.2f" (fdiv .Count $totalClusters | mulf 100.0) }}%; background-color: {{ $color }};" title="{{ .Name }}: {{ .Count }}"></div>
+                        {{ end }}
+                    </div>
+                    <div class="chart-legend">
+                        {{ range $i, $stat := .ClusterStats }}
+                        <div class="legend-item"><span class="legend-color" style="background-color: {{ index $colors (mod $i 10) }};"></span>{{ .Name }} ({{ .Count }})</div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+
+            <div class="stat-widget"> 
+                <h3>Top Namespaces (Warnings)</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        {{ $colors := ColorSlice }}
+                        {{ $totalNS := 0 }}{{ range .NamespaceStats }}{{ $totalNS = add $totalNS .Count }}{{ end }}
+                        {{ range $i, $stat := .NamespaceStats }}
+                            {{ $color := index $colors (mod $i 10) }}
+                            <div class="bar-segment" style="width: {{ printf "%.2f" (fdiv .Count $totalNS | mulf 100.0) }}%; background-color: {{ $color }};" title="{{ .Name }}: {{ .Count }}"></div>
+                        {{ end }}
+                    </div>
+                    <div class="chart-legend">
+                        {{ range $i, $stat := .NamespaceStats }}
+                        <div class="legend-item"><span class="legend-color" style="background-color: {{ index $colors (mod $i 10) }};"></span>{{ .Name }} ({{ .Count }})</div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+
+            <div class="stat-widget">
+                <h3>Top Reasons</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        {{ $colors := ColorSlice }}
+                        {{ $totalReasons := 0 }}{{ range .ReasonStats }}{{ $totalReasons = add $totalReasons .Count }}{{ end }}
+                        {{ range $i, $stat := .ReasonStats }}
+                            {{ $color := index $colors (mod $i 10) }}
+                            <div class="bar-segment" style="width: {{ printf "%.2f" (fdiv .Count $totalReasons | mulf 100.0) }}%; background-color: {{ $color }};" title="{{ .Reason }}: {{ .Count }}"></div>
+                        {{ end }}
+                    </div>
+                    <div class="chart-legend">
+                        {{ range $i, $stat := .ReasonStats }}
+                        <div class="legend-item"><span class="legend-color" style="background-color: {{ index $colors (mod $i 10) }};"></span>{{ .Reason }} ({{ .Count }})</div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="container" style="overflow-x: auto;">
+            <h2>Warning Heatmap (Cluster vs Namespace)</h2>
             <div class="heatmap-container">
                 <table class="heatmap">
+                    <thead>
+                        <tr>
+                            <th>Cluster \ Namespace</th>
+                            {{ range .HeatmapNamespaces }}<th>{{ . }}</th>{{ end }}
+                        </tr>
+                    </thead>
                     <tbody>
                         {{ range .HeatmapRows }}
                         <tr>
                             <th>{{ .ClusterName }}</th>
-                            {{ range $j, $cell := .Cells }}
-                                {{ $nsName := index $.HeatmapNamespaces $j }}
-                                
-                                <td class="{{ $cell.Level }}"
-                                    data-ns="{{ $nsName }}"
-                                    data-count="{{ $cell.Count }}"
-                                    data-reason="{{ $cell.TopReason }}"
-                                    data-reason-count="{{ $cell.TopReasonCount }}">
-                                    
-                                    <div class="heat-cell">
-                                        {{ if gt $cell.Count 0 }}{{ $cell.Count }}{{ end }}
-                                    </div>
-                                </td>
+                            {{ range .Cells }}
+                            <td class="{{ .Level }}">
+                                <span class="heat-cell">
+                                    {{ if gt .Count 0 }}{{ .Count }}{{ else }}-{{ end }}
+                                </span>
+                                {{ if gt .Count 0 }}
+                                <div class="heatmap-tooltip">
+                                    <strong>{{ .Count }} Warnings</strong><br>
+                                    Top: {{ .TopReason }} ({{ .TopReasonCount }})
+                                </div>
+                                {{ end }}
+                            </td>
                             {{ end }}
-                        </tr>
-                        {{ else }}
-                        <tr>
-                            <td colspan="{{ len .HeatmapNamespaces | add 1 }}" class="no-data">No warning events found in the last hour.</td>
                         </tr>
                         {{ end }}
                     </tbody>
@@ -187,131 +106,47 @@
             </div>
         </div>
 
-
-        <div class="stats-container" style="max-width: 1600px;">
-            <div class="stat-widget">
-                <h3>Warn Events by Cluster</h3>
-                <div class="chart-container">
-                    <div class="stacked-bar-container">
-                        {{ $colors := ColorSlice }}
-                        {{ $totalClusters := 0 }}
-                        {{ range .ClusterStats }}{{ $totalClusters = add $totalClusters .Count }}{{ end }}
-                        {{ range $i, $stat := .ClusterStats }}
-                            {{ $color := index $colors (mod $i 10) }}
-                            <div class="bar-segment" 
-                                 style="width: {{ printf "%.2f" (fdiv .Count $totalClusters | mulf 100.0) }}%; background-color: {{ $color }}; box-shadow: 0 0 10px 0px {{ $color }};"
-                                 title="{{ .Name }}: {{ .Count }}"></div>
-                        {{ end }}
-                    </div>
-                    <div class="chart-legend">
-                        {{ range $i, $stat := .ClusterStats }}
-                        <div class="legend-item">
-                            <span class="legend-color" style="background-color: {{ index $colors (mod $i 10) }};"></span>
-                            {{ .Name }} ({{ .Count }})
-                        </div>
-                        {{ end }}
-                    </div>
-                </div>
-            </div>
-            
-            <div class="stat-widget"> 
-                <h3>Warn Events by Namespace (Top 10)</h3>
-                <div class="chart-container">
-                    <div class="stacked-bar-container">
-                        {{ $colors := ColorSlice }}
-                        {{ $totalNS := 0 }}
-                        {{ range .NamespaceStats }}{{ $totalNS = add $totalNS .Count }}{{ end }}
-                        {{ range $i, $stat := .NamespaceStats }}
-                            {{ $color := index $colors (mod $i 10) }}
-                            <div class="bar-segment" 
-                                 style="width: {{ printf "%.2f" (fdiv .Count $totalNS | mulf 100.0) }}%; background-color: {{ $color }}; box-shadow: 0 0 10px 0px {{ $color }};"
-                                 title="{{ .Name }}: {{ .Count }}"></div>
-                        {{ end }}
-                    </div>
-                    <div class="chart-legend">
-                        {{ range $i, $stat := .NamespaceStats }}
-                        <div class="legend-item">
-                            <span class="legend-color" style="background-color: {{ index $colors (mod $i 10) }};"></span>
-                            <span class="{{ if eq .Name "Others" }}bar-label-other{{ end }}">{{ .Name }}</span> ({{ .Count }})
-                        </div>
-                        {{ end }}
-                    </div>
-                </div>
-            </div>
-
-            <div class="stat-widget"> 
-                <h3>Warn Events by Reason (Top 10)</h3>
-                <div class="chart-container">
-                    <div class="stacked-bar-container">
-                        {{ $colors := ColorSlice }}
-                        {{ $totalReason := 0 }}
-                        {{ range .ReasonStats }}{{ $totalReason = add $totalReason .Count }}{{ end }}
-                        {{ range $i, $stat := .ReasonStats }}
-                            {{ $color := index $colors (mod $i 10) }}
-                            <div class="bar-segment" 
-                                 style="width: {{ printf "%.2f" (fdiv .Count $totalReason | mulf 100.0) }}%; background-color: {{ $color }}; box-shadow: 0 0 10px 0px {{ $color }};"
-                                 title="{{ .Reason }}: {{ .Count }}"></div>
-                        {{ end }}
-                    </div>
-                    <div class="chart-legend">
-                        {{ range $i, $stat := .ReasonStats }}
-                        <div class="legend-item">
-                            <span class="legend-color" style="background-color: {{ index $colors (mod $i 10) }};"></span>
-                            <span class="{{ if eq .Reason "Others" }}bar-label-other{{ end }}">{{ .Reason }}</span> ({{ .Count }})
-                        </div>
-                        {{ end }}
-                    </div>
-                </div>
-            </div>
-        </div>
-
         {{ if .ErrorLogs }}
         <div class="errors">
             <h2>Connection Errors</h2>
-            <ul>
-                {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
-            </ul>
+            <ul>{{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}</ul>
         </div>
         {{ end }}
 
         <div class="search-container">
-            <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="Search by message, reason, object, or namespace...">
+            <input type="text" id="searchInput" onkeyup="filterTable('searchInput', 'mainTable')" placeholder="Search events...">
         </div>
 
-        <div class="container" style="margin-top: 1.5rem;">
-            <h2>Recent Events (Top 100 in Last Hour)</h2>
+        <div class="container">
+            <h2>Recent Events (Last 100)</h2>
             <table id="mainTable">
-                <thead id="tableHeader">
+                <thead>
                     <tr>
-                        <th class="sortable-header" data-sort-type="string" data-sort-key="age">Last Seen</th>
+                        <th class="sortable-header" data-sort-type="string">Time</th>
                         <th class="sortable-header" data-sort-type="string">Type</th>
-                        <th class="sortable-header" data-sort-type="string">Cluster</th>
-                        <th class="sortable-header col-namespace" data-sort-type="string">Namespace</th>
-                        <th class="sortable-header col-obj" data-sort-type="string">Object</th>
                         <th class="sortable-header" data-sort-type="string">Reason</th>
+                        <th class="sortable-header" data-sort-type="string">Object</th>
+                        <th>Message</th>
                         <th class="sortable-header" data-sort-type="number">Count</th>
-                        <th class="sortable-header col-message" data-sort-type="string">Message</th>
+                        <th class="sortable-header" data-sort-type="string">Cluster</th>
+                        <th class="sortable-header" data-sort-type="string">Namespace</th>
                     </tr>
                 </thead>
-                <tbody id="tableBody">
+                <tbody>
                     {{ range .RecentEvents }}
-                    <tr class="{{ if eq .Type "Warning" }}event-warning{{ else }}event-normal{{ end }}">
-                        <td>{{ .LastSeen }}</td>
-                        <td>{{ .Type }}</td>
-                        <td class="cluster-name col-cluster">{{ .Cluster }}</td>
-                        <td class="col-namespace">
-                            <a href="{{ MakeURL $.QueryString "/namespace/detail" "name" .Namespace }}" class="deployment-link">
-                                {{ .Namespace }}
-                            </a>
-                        </td>
-                        <td class="col-obj" title="{{ .Object }}">{{ .Object }}</td>
-                        <td>{{ .Reason }}</td>
-                        <td>{{ .Count }}</td>
-                        <td class="col-message" title="{{ .Message }}">{{ .Message }}</td>
-                    </tr>
-                    {{ else }}
                     <tr>
-                        <td colspan="8" class="no-data">No events found in the last hour.</td>
+                        <td>{{ .LastSeen }}</td>
+                        <td class="{{ if eq .Type "Warning" }}event-warning{{ else }}event-normal{{ end }}">{{ .Type }}</td>
+                        <td>{{ .Reason }}</td>
+                        <td>{{ .Object }}</td>
+                        <td style="white-space: normal; max-width: 400px;">{{ .Message }}</td>
+                        <td>{{ .Count }}</td>
+                        <td class="cluster-name">{{ .Cluster }}</td>
+                        <td>
+                            {{ if .Namespace }}
+                            <a href="{{ MakeURL $.QueryString "/namespace/detail" "name" .Namespace }}" class="deployment-link">{{ .Namespace }}</a>
+                            {{ else }}-{{ end }}
+                        </td>
                     </tr>
                     {{ end }}
                 </tbody>
@@ -319,119 +154,6 @@
         </div>
     </main>
 
-    <script>
-        // --- Search Function ---
-        function filterTable() {
-            let filter = document.getElementById('searchInput').value.toLowerCase();
-            let table = document.getElementById("mainTable");
-            let tr = table.getElementsByTagName("tbody")[0].getElementsByTagName("tr");
-            for (let i = 0; i < tr.length; i++) {
-                let rowText = tr[i].textContent || tr[i].innerText;
-                if (rowText.toLowerCase().indexOf(filter) > -1) {
-                    tr[i].style.display = "";
-                } else {
-                    tr[i].style.display = "none";
-                }
-            }
-        }
-        
-        // --- Sorting & Tooltip Logic ---
-        document.addEventListener('DOMContentLoaded', function() {
-            // --- Sorting Logic ---
-            const table = document.getElementById("mainTable");
-            const headerRow = document.getElementById("tableHeader");
-            const tableBody = document.getElementById("tableBody");
-            
-            if (table && headerRow && tableBody) {
-                const headers = headerRow.querySelectorAll('th.sortable-header');
-                headers.forEach((header, colIndex) => {
-                    header.addEventListener('click', () => {
-                        const sortType = header.dataset.sortType || 'string';
-                        const sortKey = header.dataset.sortKey;
-                        const currentAsc = header.classList.contains('sort-asc');
-                        const newAsc = !currentAsc; 
-                        headers.forEach(h => { h.classList.remove('sort-asc', 'sort-desc'); });
-                        if (newAsc) { header.classList.add('sort-asc'); } else { header.classList.add('sort-desc'); }
-                        sortRows(tableBody, colIndex, sortType, sortKey, newAsc);
-                    });
-                });
-            }
-
-            // --- Global Tooltip Logic ---
-            const tooltip = document.getElementById('global-tooltip');
-            const cells = document.querySelectorAll('.heatmap td');
-
-            if (tooltip) {
-                cells.forEach(cell => {
-                    cell.addEventListener('mouseenter', (e) => {
-                        const ns = e.currentTarget.dataset.ns; // Use currentTarget
-                        if (!ns) return; 
-
-                        const count = e.currentTarget.dataset.count;
-                        const reason = e.currentTarget.dataset.reason;
-                        const reasonCount = e.currentTarget.dataset.reasonCount;
-
-                        tooltip.innerHTML = `<strong>${ns}</strong><br>
-                                             Total: ${count}<br>
-                                             Top Reason: ${reason} (${reasonCount})`;
-                        
-                        tooltip.style.display = 'block';
-                        tooltip.style.left = (e.clientX + 15) + 'px';
-                        tooltip.style.top = (e.clientY + 15) + 'px';
-                        requestAnimationFrame(() => {
-                            tooltip.style.opacity = 1;
-                        });
-                    });
-
-                    cell.addEventListener('mouseleave', () => {
-                        tooltip.style.opacity = 0;
-                        setTimeout(() => {
-                            if (tooltip.style.opacity === '0') {
-                                tooltip.style.display = 'none';
-                            }
-                        }, 200);
-                    });
-
-                    cell.addEventListener('mousemove', (e) => {
-                        tooltip.style.left = (e.clientX + 15) + 'px';
-                        tooltip.style.top = (e.clientY + 15) + 'px';
-                    });
-                });
-            }
-        });
-
-        // --- Sorting Helper Functions ---
-        function getCellValue(row, colIndex, sortType, sortKey) {
-            const cell = row.children[colIndex];
-            if (!cell) return '';
-            const value = (cell.firstElementChild?.textContent || cell.textContent || cell.innerText).trim();
-
-            switch (sortKey) {
-                case 'age':
-                    let seconds = 0;
-                    if (value.endsWith('d')) { seconds = parseInt(value, 10) * 86400; }
-                    else if (value.endsWith('h')) { seconds = parseInt(value, 10) * 3600; }
-                    else if (value.endsWith('m')) { seconds = parseInt(value, 10) * 60; }
-                    else if (value.endsWith('s')) { seconds = parseInt(value, 10); }
-                    return seconds;
-                default:
-                    if (sortType === 'number') { return parseInt(value, 10) || 0; }
-                    return value.toLowerCase();
-            }
-        }
-        function sortRows(tableBody, colIndex, sortType, sortKey, asc) {
-            const rows = Array.from(tableBody.querySelectorAll('tr'));
-            const dirModifier = asc ? 1 : -1;
-            rows.sort((rowA, rowB) => {
-                const valA = getCellValue(rowA, colIndex, sortType, sortKey);
-                const valB = getCellValue(rowB, colIndex, sortType, sortKey);
-                if (sortType === 'number') { return (valA - valB) * dirModifier; }
-                else { return valA.localeCompare(valB) * dirModifier; }
-            });
-            rows.forEach(row => {
-                tableBody.appendChild(row);
-            });
-        }
-    </script>
+    <script src="/static/js/table_utils.js"></script>
 </body>
 </html>

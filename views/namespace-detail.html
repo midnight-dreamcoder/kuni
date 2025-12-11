@@ -5,54 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ .Title }} - K8s Universal Inspector</title>
     <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
-    <style>
-        /* Per-page width override */
-        .stats-container, .container, .search-container, .errors {
-            max-width: 1600px;
-        }
-        .page-subtitle {
-            font-size: 1.1rem;
-            font-weight: 400;
-            color: #7d899e;
-            margin-top: -1.5rem;
-            margin-bottom: 1.5rem;
-        }
-        .tab-buttons {
-            display: flex;
-            border-bottom: 2px solid #3a4157;
-            margin-bottom: 1.5rem;
-            flex-wrap: wrap;
-        }
-        .tab-button {
-            padding: 0.75rem 1.25rem;
-            font-size: 1rem;
-            font-weight: 700;
-            color: #888;
-            cursor: pointer;
-            border: none;
-            background: none;
-            border-bottom: 2px solid transparent;
-            margin-bottom: -2px;
-        }
-        .tab-button:hover { color: #e1e1e1; }
-        .tab-button.active { color: #00ff9c; border-bottom-color: #00ff9c; }
-        .tab-panel { display: none; }
-        .tab-panel.active { display: block; }
-        .local-stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 1.5rem;
-        }
-        .container h2 {
-            margin: 0;
-            padding: 1.2rem 1.5rem;
-            background-color: #1a1d24;
-            border-bottom: 1px solid #3a4157;
-            font-size: 1.2rem;
-            color: #00ff9c;
-        }
-    </style>
 </head>
 <body>
 
@@ -73,11 +25,12 @@
         </div>
         {{ end }}
         
-        <div class="tab-buttons">
+        <div class="tabs-container">
             {{ if .ClusterNames }}
-                {{ range .ClusterNames }}
-                    <button class="tab-button" data-target="cluster-{{ . }}">
-                        {{ . }}
+                {{ range $index, $cluster := .ClusterNames }}
+                    <button class="tab-btn {{ if eq $index 0 }}active{{ end }}" 
+                            onclick="openTab('{{ $cluster }}', this)">
+                        {{ $cluster }}
                     </button>
                 {{ end }}
             {{ else }}
@@ -85,13 +38,12 @@
             {{ end }}
         </div>
 
-        {{ range .ClusterNames }}
-            {{ $cluster := . }}
+        {{ range $index, $cluster := .ClusterNames }}
             {{ $detail := index $.Details $cluster }}
             
-            <div id="cluster-{{ $cluster }}" class="tab-panel">
+            <div id="tab-{{ $cluster }}" class="deployment-content {{ if eq $index 0 }}active{{ end }}">
                 
-                <div class="local-stats">
+                <div class="stats-container three-col" style="margin-bottom: 1.5rem;">
                     <div class="stat-box green">
                         <h3>Deployments</h3>
                         <div class="total">{{ $detail.TotalDeployments }}</div>
@@ -212,39 +164,26 @@
     </main>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const tabButtons = document.querySelectorAll('.tab-button');
-            const tabPanels = document.querySelectorAll('.tab-panel');
-
-            function switchTab(targetId) {
-                tabPanels.forEach(panel => panel.classList.remove('active'));
-                tabButtons.forEach(button => button.classList.remove('active'));
-
-                const targetPanel = document.getElementById(targetId);
-                if (targetPanel) {
-                    targetPanel.classList.add('active');
-                }
-                const targetButton = document.querySelector(`.tab-button[data-target="${targetId}"]`);
-                if (targetButton) {
-                    targetButton.classList.add('active');
-                }
-            }
-
-            tabButtons.forEach(button => {
-                button.addEventListener('click', () => switchTab(button.dataset.target));
+        // Updated tab logic to match the new class names
+        function openTab(clusterName, btn) {
+            // Hide all tabs
+            document.querySelectorAll('.deployment-content').forEach(el => {
+                el.classList.remove('active');
+            });
+            // Deselect all buttons
+            document.querySelectorAll('.tab-btn').forEach(el => {
+                el.classList.remove('active');
             });
 
-            // Activate the first tab by default
-            const firstButton = document.querySelector('.tab-button');
-            if (firstButton) {
-                switchTab(firstButton.dataset.target);
+            // Show selected tab
+            const target = document.getElementById('tab-' + clusterName);
+            if (target) {
+                target.classList.add('active');
             }
-        });
 
-        // Auto-refresh
-        // setTimeout(() => {
-        //     location.reload();
-        // }, 5000);
+            // Highlight button
+            btn.classList.add('active');
+        }
     </script>
 </body>
 </html>

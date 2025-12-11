@@ -7,7 +7,9 @@
     <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
 </head>
 <body>
+
     {{ template "sidebar" . }}
+
     <main class="main-content">
         <h1>{{ .PVCName }}</h1>
         <div class="page-subtitle">
@@ -15,26 +17,24 @@
         </div>
 
         {{ if .ErrorLogs }}
-        <div class="errors" style="max-width: 1600px;">
+        <div class="errors">
             <h2>Errors</h2>
             <ul>{{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}</ul>
         </div>
         {{ end }}
         
         <div class="detail-grid">
+            
             <div class="detail-main">
-                
                 <div class="container">
-                    <h2>Mounted By Pods ({{ len .MountedBy }})</h2>
+                    <h2>Mounted By (Pods)</h2>
                     <table>
                         <thead>
                             <tr>
-                                <th>Name</th>
+                                <th>Pod Name</th>
                                 <th>Ready</th>
                                 <th>Status</th>
-                                <th>Restarts</th>
                                 <th>Node</th>
-                                <th>IP</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -47,12 +47,14 @@
                                 </td>
                                 <td>{{ .Ready }}</td>
                                 <td><span class="status status-{{ .Status | ToLower }}">{{ .Status }}</span></td>
-                                <td>{{ .Restarts }}</td>
-                                <td>{{ .Node }}</td>
-                                <td>{{ .PodIP }}</td>
+                                <td>
+                                    <a href="{{ MakeURL $.QueryString "/node/detail" "name" .Node "cluster_name" .Cluster }}" class="deployment-link">
+                                        {{ .Node }}
+                                    </a>
+                                </td>
                             </tr>
                             {{ else }}
-                            <tr><td colspan="6" class="no-data">This PVC is not currently mounted by any pods in this namespace.</td></tr>
+                            <tr><td colspan="4" class="no-data">Not mounted by any pods.</td></tr>
                             {{ end }}
                         </tbody>
                     </table>
@@ -61,7 +63,15 @@
                 <div class="container">
                     <h2>Events</h2>
                     <table>
-                        <thead><tr><th>Last Seen</th><th>Type</th><th>Reason</th><th>Count</th><th>Message</th></tr></thead>
+                        <thead>
+                            <tr>
+                                <th>Last Seen</th>
+                                <th>Type</th>
+                                <th>Reason</th>
+                                <th>Count</th>
+                                <th>Message</th>
+                            </tr>
+                        </thead>
                         <tbody>
                             {{ range .Events }}
                             <tr class="{{ if eq .Type "Warning" }}event-warning{{ else }}event-normal{{ end }}">
@@ -84,23 +94,25 @@
                     <h2>Overview</h2>
                     <ul class="overview-list">
                         <li><strong>Status</strong> <span class="status status-{{ .Status | ToLower }}">{{ .Status }}</span></li>
-                        <li><strong>Capacity</strong> <span>{{ .Capacity }}</span></li>
-                        <li><strong>Volume</strong> <span style="word-break: break-all;">{{ .Volume }}</span></li>
+                        <li><strong>Volume</strong> <span style="font-size: 0.9rem;">{{ .Volume }}</span></li>
+                        <li><strong>Capacity</strong> <span style="color: #22d3ee; font-weight: 700;">{{ .Capacity }}</span></li>
                         <li><strong>Storage Class</strong> <span class="image-tag">{{ .StorageClass }}</span></li>
                         <li><strong>Age</strong> <span>{{ .Age }}</span></li>
                     </ul>
                 </div>
+
                 <div class="overview-box">
                     <h2>Access Modes</h2>
                     <div class="tag-list" style="padding: 1.5rem;">
                         {{ range .AccessModes }}
-                        <span class="cluster-tag">{{ . }}</span>
+                            <span class="cluster-tag">{{ . }}</span>
                         {{ else }}
-                        <span class="no-data" style="padding: 0;">None</span>
+                            <span class="no-data" style="padding:0;">None</span>
                         {{ end }}
                     </div>
                 </div>
             </div>
+
         </div>
     </main>
 </body>

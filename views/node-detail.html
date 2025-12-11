@@ -5,24 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ .Title }} - K8s Universal Inspector</title>
     <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
-    <style>
-        /* Taint tag style */
-        .taint-tag {
-            display: inline-block;
-            background-color: rgba(239, 68, 68, 0.1);
-            color: #ef4444;
-            padding: 0.25rem 0.6rem;
-            border-radius: 4px;
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 0.85rem;
-            font-weight: 500;
-            margin-right: 6px;
-            margin-bottom: 6px;
-        }
-        .resource-table td {
-             font-family: 'IBM Plex Mono', monospace;
-        }
-    </style>
 </head>
 <body>
 
@@ -35,7 +17,7 @@
         </div>
 
         {{ if .ErrorLogs }}
-        <div class="errors" style="max-width: 1600px;">
+        <div class="errors">
             <h2>Errors</h2>
             <ul>
                 {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
@@ -139,7 +121,7 @@
                     <h2>Taints</h2>
                     <div class="tag-list" style="padding: 1.5rem;">
                         {{ range .Taints }}
-                        <span class="taint-tag" title="{{ .Key }}={{ .Value }}:{{ .Effect }}">{{ .Key }}:{{ .Effect }}</span>
+                        <span class="status status-failed" title="{{ .Key }}={{ .Value }}:{{ .Effect }}">{{ .Key }}:{{ .Effect }}</span>
                         {{ else }}
                         <span class="no-data" style="padding: 0; text-align: left;">No taints.</span>
                         {{ end }}
@@ -148,7 +130,7 @@
 
                 <div class="container">
                     <h2>Resources</h2>
-                    <table class="resource-table">
+                    <table>
                         <thead>
                             <tr>
                                 <th>Resource</th>

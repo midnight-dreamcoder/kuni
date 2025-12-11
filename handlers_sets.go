@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -21,7 +21,6 @@ func handleGetDaemonSets(pattern string) echo.HandlerFunc {
 			return c.String(500, "Error finding kubeconfig files")
 		}
 		
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "All DaemonSets",
 			ActivePage:           "daemonsets",
@@ -35,57 +34,65 @@ func handleGetDaemonSets(pattern string) echo.HandlerFunc {
 
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
+		
+		if len(filesToProcess) == 0 {
+			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
+		}
+
+		// --- 1. Define Fetch Logic ---
+		type dsFetchResult struct {
+			ClusterName string
+			Items       []appsv1.DaemonSet
+		}
+
+		fetchDS := func(client KubeClient) (dsFetchResult, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			list, err := client.Clientset.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return dsFetchResult{}, err
+			}
+			return dsFetchResult{ClusterName: client.ContextName, Items: list.Items}, nil
+		}
+
+		// --- 2. Execute ---
+		results, fetchErrors := ParallelFetch(clients, fetchDS)
+		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
+
+		// --- 3. Aggregate ---
 		var allDaemonSets []DaemonSetInfo
 		clusterDistribution := make(map[string]int)
 		namespaceDistribution := make(map[string]int)
 		nodeSelectorDistribution := make(map[string]int)
 
-		if len(filesToProcess) == 0 {
-			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
-		}
-		var wg sync.WaitGroup
-		var mutex sync.Mutex
-		for _, client := range clients {
-			wg.Add(1)
-			go func(client KubeClient) {
-				defer wg.Done()
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				defer cancel()
-				dsList, err := client.Clientset.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{})
-				if err != nil {
-					mutex.Lock()
-					base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Cluster: %s | Error: Failed to list daemonsets (%v)", client.ContextName, err))
-					mutex.Unlock()
-					return
-				}
-				mutex.Lock()
-				for _, ds := range dsList.Items {
-					clusterDistribution[client.ContextName]++
-					namespaceDistribution[ds.Namespace]++
-					readyStr := fmt.Sprintf("%d/%d", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled)
-					nodeSelector := "None"
-					if len(ds.Spec.Template.Spec.NodeSelector) > 0 {
-						var selectors []string
-						for k, v := range ds.Spec.Template.Spec.NodeSelector {
-							selectors = append(selectors, fmt.Sprintf("%s=%s", k,v))
-						}
-						nodeSelector = strings.Join(selectors, ", ")
+		for _, res := range results {
+			for _, ds := range res.Items {
+				clusterDistribution[res.ClusterName]++
+				namespaceDistribution[ds.Namespace]++
+				readyStr := fmt.Sprintf("%d/%d", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled)
+				
+				nodeSelector := "None"
+				if len(ds.Spec.Template.Spec.NodeSelector) > 0 {
+					var selectors []string
+					for k, v := range ds.Spec.Template.Spec.NodeSelector {
+						selectors = append(selectors, fmt.Sprintf("%s=%s", k, v))
 					}
-					nodeSelectorDistribution[nodeSelector]++
-					allDaemonSets = append(allDaemonSets, DaemonSetInfo{
-						Cluster:   client.ContextName,
-						Namespace: ds.Namespace,
-						Name:      ds.Name,
-						Ready:     readyStr,
-						Node:      nodeSelector,
-						Age:       formatAge(ds.CreationTimestamp),
-					})
+					nodeSelector = strings.Join(selectors, ", ")
 				}
-				mutex.Unlock()
-			}(client)
+				nodeSelectorDistribution[nodeSelector]++
+				
+				allDaemonSets = append(allDaemonSets, DaemonSetInfo{
+					Cluster:   res.ClusterName,
+					Namespace: ds.Namespace,
+					Name:      ds.Name,
+					Ready:     readyStr,
+					Node:      nodeSelector,
+					Age:       formatAge(ds.CreationTimestamp),
+				})
+			}
 		}
-		wg.Wait()
 		
+		// --- 4. Stats & Sort ---
 		var clusterStats []ClusterStat; for n, c := range clusterDistribution { clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c}) }; sort.Slice(clusterStats, func(i, j int) bool { return clusterStats[i].Name < clusterStats[j].Name })
 		
 		const topN = 10
@@ -144,7 +151,6 @@ func handleGetDaemonSetDetail(pattern string) echo.HandlerFunc {
 			return c.String(400, "Missing required query parameters: cluster_name, namespace, name")
 		}
 
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                dsName,
 			ActivePage:           "daemonsets",
@@ -243,7 +249,6 @@ func handleGetStatefulSets(pattern string) echo.HandlerFunc {
 			return c.String(500, "Error finding kubeconfig files")
 		}
 
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "All StatefulSets",
 			ActivePage:           "statefulsets",
@@ -257,49 +262,58 @@ func handleGetStatefulSets(pattern string) echo.HandlerFunc {
 
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
-		var allStatefulSets []StatefulSetInfo
-		clusterDistribution := make(map[string]int)
-		namespaceDistribution := make(map[string]int)
+		
 		if len(filesToProcess) == 0 {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
 		}
-		var wg sync.WaitGroup
-		var mutex sync.Mutex
-		for _, client := range clients {
-			wg.Add(1)
-			go func(client KubeClient) {
-				defer wg.Done()
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				defer cancel()
-				ssList, err := client.Clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
-				if err != nil {
-					mutex.Lock()
-					base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Cluster: %s | Error: Failed to list statefulsets (%v)", client.ContextName, err))
-					mutex.Unlock()
-					return
-				}
-				mutex.Lock()
-				for _, ss := range ssList.Items {
-					clusterDistribution[client.ContextName]++
-					namespaceDistribution[ss.Namespace]++
-					var desiredReplicas int32 = 1
-					if ss.Spec.Replicas != nil {
-						desiredReplicas = *ss.Spec.Replicas
-					}
-					readyStr := fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, desiredReplicas)
-					allStatefulSets = append(allStatefulSets, StatefulSetInfo{
-						Cluster:   client.ContextName,
-						Namespace: ss.Namespace,
-						Name:      ss.Name,
-						Ready:     readyStr,
-						Age:       formatAge(ss.CreationTimestamp),
-					})
-				}
-				mutex.Unlock()
-			}(client)
+
+		// --- 1. Fetch Logic ---
+		type ssFetchResult struct {
+			ClusterName string
+			Items       []appsv1.StatefulSet
 		}
-		wg.Wait()
+
+		fetchSS := func(client KubeClient) (ssFetchResult, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			list, err := client.Clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return ssFetchResult{}, err
+			}
+			return ssFetchResult{ClusterName: client.ContextName, Items: list.Items}, nil
+		}
+
+		// --- 2. Execute ---
+		results, fetchErrors := ParallelFetch(clients, fetchSS)
+		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
+
+		// --- 3. Aggregate ---
+		var allStatefulSets []StatefulSetInfo
+		clusterDistribution := make(map[string]int)
+		namespaceDistribution := make(map[string]int)
+
+		for _, res := range results {
+			for _, ss := range res.Items {
+				clusterDistribution[res.ClusterName]++
+				namespaceDistribution[ss.Namespace]++
+				
+				var desiredReplicas int32 = 1
+				if ss.Spec.Replicas != nil {
+					desiredReplicas = *ss.Spec.Replicas
+				}
+				readyStr := fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, desiredReplicas)
+				
+				allStatefulSets = append(allStatefulSets, StatefulSetInfo{
+					Cluster:   res.ClusterName,
+					Namespace: ss.Namespace,
+					Name:      ss.Name,
+					Ready:     readyStr,
+					Age:       formatAge(ss.CreationTimestamp),
+				})
+			}
+		}
 		
+		// --- 4. Stats ---
 		var clusterStats []ClusterStat; for n, c := range clusterDistribution { clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c}) }; sort.Slice(clusterStats, func(i, j int) bool { return clusterStats[i].Name < clusterStats[j].Name })
 		
 		const topN = 10
@@ -341,7 +355,6 @@ func handleGetStatefulSetDetail(pattern string) echo.HandlerFunc {
 			return c.String(400, "Missing required query parameters: cluster_name, namespace, name")
 		}
 
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                ssName,
 			ActivePage:           "statefulsets",

@@ -5,93 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ .Title }} - K8s Universal Inspector</title>
     <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
-    <style>
-        /* 2-Column Grid */
-        .dashboard-grid {
-            max-width: 1600px;
-            margin: 0 auto 1.5rem auto;
-            display: grid;
-            grid-template-columns: 1fr 1fr; /* 2 columns */
-            gap: 1.5rem;
-        }
-        .dashboard-grid .full-width {
-            grid-column: 1 / -1;
-        }
-        .stat-widget { padding: 0; }
-        .stat-widget h3 { padding: 1rem 1.5rem; }
-        .chart-container {
-            padding: 1.5rem;
-        }
-        .stacked-bar-container {
-            display: flex;
-            width: 100%;
-            height: 30px;
-            border-radius: 6px;
-            overflow: hidden;
-            background: #374151;
-            border: 1px solid #374151;
-            margin-bottom: 1.5rem;
-        }
-        .bar-segment {
-            height: 100%;
-            transition: width 0.3s ease-out; 
-            box-shadow: 0 0 10px 0px; 
-            cursor: help;
-        }
-        
-        /* Bar colors */
-        .bar-segment.status-ready { background: #10b981; box-shadow: 0 0 10px 0px #10b981; }
-        .bar-segment.status-notready { background: #ef4444; box-shadow: 0 0 10px 0px #ef4444; }
-        .bar-segment.status-bound { background: #10b981; box-shadow: 0 0 10px 0px #10b981; }
-        .bar-segment.status-available { background: #22d3ee; box-shadow: 0 0 10px 0px #22d3ee; }
-        .bar-segment.status-pending { background: #f59e0b; box-shadow: 0 0 10px 0px #f59e0b; }
-        .bar-segment.status-failed { background: #ef4444; box-shadow: 0 0 10px 0px #ef4444; }
-        .bar-segment.status-released { background: #9ca3af; box-shadow: 0 0 10px 0px #9ca3af; }
-        .bar-segment.usage { background: #f59e0b; box-shadow: 0 0 10px 0px #f59e0b; }
-        .bar-segment.allocatable { background: #22d3ee; box-shadow: 0 0 10px 0px #22d3ee; } /* Cyan for Allocatable */
-
-
-        /* Legend */
-        .chart-legend {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 1rem;
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 0.9rem;
-            color: #9ca3af;
-        }
-        .legend-item {
-            display: flex;
-            align-items: center;
-        }
-        .legend-color {
-            width: 12px;
-            height: 12px;
-            border-radius: 2px;
-            margin-right: 8px;
-        }
-        .legend-percent {
-            font-size: 1.1rem;
-            font-weight: 700;
-            color: #ffffff;
-            margin-left: 0.5rem;
-        }
-        .title-count {
-            font-size: 1.5rem;
-            font-weight: 600;
-            color: #9ca3af;
-            margin-left: 0.75rem;
-            vertical-align: middle;
-        }
-
-        .responsive-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
-            gap: 1.5rem;
-            padding: 1.5rem; 
-        }
-    </style>
 </head>
 <body>
 
@@ -113,7 +26,7 @@
         </div>
         {{ end }}
 
-        <div class="dashboard-grid" style="grid-template-columns: 1fr 1fr;">
+        <div class="stats-container">
             
             <div class="stat-widget">
                 <h3>Node Status ({{ .NodeStatus.Total }} Total)</h3>
@@ -128,11 +41,11 @@
                     </div>
                     <div class="chart-legend">
                         <div class="legend-item">
-                            <span class="legend-color status-ready"></span>
+                            <span class="legend-color status-ready" style="background-color: #10b981;"></span>
                             Ready ({{ .NodeStatus.Ready }})
                         </div>
                         <div class="legend-item">
-                            <span class="legend-color status-notready"></span>
+                            <span class="legend-color status-notready" style="background-color: #ef4444;"></span>
                             Not Ready ({{ .NodeStatus.NotReady }})
                         </div>
                     </div>
@@ -160,7 +73,9 @@
                 </div>
             </div>
 
-        </div> <div class="container" style="margin-top: 1.5rem;">
+        </div> 
+
+        <div class="container" style="margin-top: 1.5rem;">
             <h2>Real-Time Cluster Utilization</h2>
             
             <div class="responsive-grid">
@@ -177,34 +92,32 @@
                         <div class="chart-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; border-top: 1px solid #374151;">
                             
                             <div>
-                                <h4 style="color: #9ca3af; font-weight: 500; font-family: 'IBM Plex Mono', monospace;">CPU (Total: {{ $res.CapacityCpu }} Cores)</h4>
+                                <h4 style="color: #9ca3af; font-weight: 500; font-family: 'IBM Plex Mono', monospace;">CPU (Total: {{ $res.CapacityCpu }})</h4>
                                 
                                 <div class="stacked-bar-container">
                                     <div class="bar-segment allocatable" 
                                          style="width: {{ printf "%.2f" $res.AllocatableCpuPercent }}%;"
-                                         title="Allocatable: {{ $res.AllocatableCpu }} Cores"></div>
+                                         title="Allocatable: {{ $res.AllocatableCpu }}"></div>
                                 </div>
                                 <div class="chart-legend" style="justify-content: left; margin-bottom: 1rem;">
                                     <div class="legend-item">
                                         <span class="legend-color" style="background-color: #22d3ee;"></span>
-                                        Allocatable
-                                        <span class="legend-percent">{{ printf "%.1f" $res.AllocatableCpuPercent }}%</span>
+                                        Allocatable <span class="legend-percent">{{ printf "%.1f" $res.AllocatableCpuPercent }}%</span>
                                     </div>
                                 </div>
 
                                 <div class="stacked-bar-container">
                                     <div class="bar-segment usage" 
                                          style="width: {{ printf "%.2f" $res.UsageCpuPercent }}%;"
-                                         title="Usage: {{ $res.UsageCpu }} Cores"></div>
+                                         title="Usage: {{ $res.UsageCpu }}"></div>
                                 </div>
                                 <div class="chart-legend" style="justify-content: left;">
                                     <div class="legend-item">
                                         <span class="legend-color" style="background-color: #f59e0b;"></span>
-                                        Usage ({{ $res.UsageCpu }} Cores)
-                                        <span class="legend-percent">{{ printf "%.1f" $res.UsageCpuPercent }}%</span>
+                                        Usage <span class="legend-percent">{{ printf "%.1f" $res.UsageCpuPercent }}%</span>
                                     </div>
                                 </div>
-                                </div>
+                            </div>
                             
                             <div>
                                 <h4 style="color: #9ca3af; font-weight: 500; font-family: 'IBM Plex Mono', monospace;">Memory (Total: {{ $res.CapacityMem }})</h4>
@@ -217,8 +130,7 @@
                                 <div class="chart-legend" style="justify-content: left; margin-bottom: 1rem;">
                                     <div class="legend-item">
                                         <span class="legend-color" style="background-color: #22d3ee;"></span>
-                                        Allocatable
-                                        <span class="legend-percent">{{ printf "%.1f" $res.AllocatableMemPercent }}%</span>
+                                        Allocatable <span class="legend-percent">{{ printf "%.1f" $res.AllocatableMemPercent }}%</span>
                                     </div>
                                 </div>
                                 
@@ -230,11 +142,10 @@
                                 <div class="chart-legend" style="justify-content: left;">
                                     <div class="legend-item">
                                         <span class="legend-color" style="background-color: #f59e0b;"></span>
-                                        Usage ({{ $res.UsageMem }})
-                                        <span class="legend-percent">{{ printf "%.1f" $res.UsageMemPercent }}%</span>
+                                        Usage <span class="legend-percent">{{ printf "%.1f" $res.UsageMemPercent }}%</span>
                                     </div>
                                 </div>
-                                </div>
+                            </div>
 
                         </div>
                     </div>

@@ -22,7 +22,6 @@ func handleSearch(pattern string) echo.HandlerFunc {
 			return c.String(500, "Error finding kubeconfig files")
 		}
 		
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "Search",
 			ActivePage:           "search",
@@ -52,6 +51,7 @@ func handleSearch(pattern string) echo.HandlerFunc {
 		var wg sync.WaitGroup
 		resultsChan := make(chan SearchResult, 100)
 
+		// Fire off the helpers (these are defined in helpers.go)
 		wg.Add(12) 
 		go searchClusters(re, clients, resultsChan, &wg)
 		go searchNamespaces(re, clients, resultsChan, &wg)
@@ -108,7 +108,6 @@ func handleGetEvents(pattern string) echo.HandlerFunc {
 		now := time.Now().UTC()
 		hourAgo := now.Add(-1 * time.Hour)
 
-		// [UPDATED] Injected IsAdmin
 		base := PageBase{
 			Title:                "Cluster Events (Last Hour)",
 			ActivePage:           "events",
@@ -123,71 +122,72 @@ func handleGetEvents(pattern string) echo.HandlerFunc {
 		clients, clientErrors := createClients(filesToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 
-		var allEvents []EventInfo
-		clusterDistribution := make(map[string]int)
-		namespaceDistribution := make(map[string]int)
-		reasonDistribution := make(map[string]int)
-
-		var clusterNames []string
-		for _, client := range clients {
-			clusterNames = append(clusterNames, client.ContextName)
-		}
-		sort.Strings(clusterNames)
-
 		if len(filesToProcess) == 0 {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
 		}
 
-		var wg sync.WaitGroup
-		var mutex sync.Mutex
-
-		for _, client := range clients {
-			wg.Add(1)
-			go func(client KubeClient) {
-				defer wg.Done()
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				defer cancel()
-				
-				eventList, err := client.Clientset.CoreV1().Events("").List(ctx, metav1.ListOptions{})
-				if err != nil {
-					mutex.Lock()
-					base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Cluster: %s | Error: Failed to list events (%v)", client.ContextName, err))
-					mutex.Unlock()
-					return
-				}
-
-				mutex.Lock()
-				for _, e := range eventList.Items {
-					if e.LastTimestamp.Time.Before(hourAgo) {
-						continue 
-					}
-
-					allEvents = append(allEvents, EventInfo{
-						Cluster:   client.ContextName,
-						Namespace: e.InvolvedObject.Namespace,
-						Object:    fmt.Sprintf("%s/%s", e.InvolvedObject.Kind, e.InvolvedObject.Name),
-						Type:      e.Type,
-						Reason:    e.Reason,
-						Message:   e.Message,
-						Count:     int(e.Count),
-						LastSeen:  formatAge(e.LastTimestamp),
-						Timestamp: e.LastTimestamp.Time,
-					})
-
-					if e.Type == "Warning" {
-						clusterDistribution[client.ContextName]++
-						if e.InvolvedObject.Namespace != "" {
-							namespaceDistribution[e.InvolvedObject.Namespace]++
-						}
-						if e.Reason != "" {
-							reasonDistribution[e.Reason]++
-						}
-					}
-				}
-				mutex.Unlock()
-			}(client)
+		// --- 1. Fetch Logic ---
+		type eventFetchResult struct {
+			ClusterName string
+			Events      []EventInfo
 		}
-		wg.Wait()
+
+		fetchEvents := func(client KubeClient) (eventFetchResult, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			
+			eventList, err := client.Clientset.CoreV1().Events("").List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return eventFetchResult{}, err
+			}
+
+			var filtered []EventInfo
+			for _, e := range eventList.Items {
+				if e.LastTimestamp.Time.Before(hourAgo) {
+					continue 
+				}
+				filtered = append(filtered, EventInfo{
+					Cluster:   client.ContextName,
+					Namespace: e.InvolvedObject.Namespace,
+					Object:    fmt.Sprintf("%s/%s", e.InvolvedObject.Kind, e.InvolvedObject.Name),
+					Type:      e.Type,
+					Reason:    e.Reason,
+					Message:   e.Message,
+					Count:     int(e.Count),
+					LastSeen:  formatAge(e.LastTimestamp),
+					Timestamp: e.LastTimestamp.Time,
+				})
+			}
+			return eventFetchResult{ClusterName: client.ContextName, Events: filtered}, nil
+		}
+
+		// --- 2. Execute ---
+		results, fetchErrors := ParallelFetch(clients, fetchEvents)
+		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
+
+		// --- 3. Aggregate ---
+		var allEvents []EventInfo
+		clusterDistribution := make(map[string]int)
+		namespaceDistribution := make(map[string]int)
+		reasonDistribution := make(map[string]int)
+		var clusterNames []string
+
+		for _, res := range results {
+			clusterNames = append(clusterNames, res.ClusterName)
+			for _, e := range res.Events {
+				allEvents = append(allEvents, e)
+				if e.Type == "Warning" {
+					clusterDistribution[res.ClusterName]++
+					if e.Namespace != "" {
+						namespaceDistribution[e.Namespace]++
+					}
+					if e.Reason != "" {
+						reasonDistribution[e.Reason]++
+					}
+				}
+			}
+		}
+		sort.Strings(clusterNames)
 		
 		sort.Slice(allEvents, func(i, j int) bool {
 			return allEvents[i].Timestamp.After(allEvents[j].Timestamp)
@@ -200,6 +200,7 @@ func handleGetEvents(pattern string) echo.HandlerFunc {
 			recentEvents = allEvents
 		}
 		
+		// Stats
 		var clusterStats []ClusterStat; for n, c := range clusterDistribution { clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c}) }; sort.Slice(clusterStats, func(i, j int) bool { return clusterStats[i].Name < clusterStats[j].Name })
 		
 		const topN = 10
@@ -221,7 +222,7 @@ func handleGetEvents(pattern string) echo.HandlerFunc {
 			var otherSum int; for _, o := range reasonStats[topN:] { otherSum += o.Count }; reasonStats = reasonStats[:topN]; reasonStats = append(reasonStats, ReasonStat{Reason: "Others", Count: otherSum})
 		}
 		
-		// --- HEATMAP DATA RE-CALCULATION ---
+		// --- HEATMAP CALCULATION ---
 		heatmapData := make(map[string]map[string]map[string]int)
 		for _, name := range clusterNames {
 			heatmapData[name] = make(map[string]map[string]int)
