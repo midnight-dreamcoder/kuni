@@ -42,7 +42,6 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 		}
 
 		// --- 1. Define Parallel Fetch Logic ---
-		// We need a struct to carry the ClusterName back with the results
 		type deploymentFetchResult struct {
 			ClusterName string
 			Deployments []appsv1.Deployment
@@ -51,7 +50,7 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 		fetchDeployments := func(client KubeClient) (deploymentFetchResult, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			
+
 			list, err := client.Clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
 			if err != nil {
 				return deploymentFetchResult{}, err
@@ -69,7 +68,7 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 		// --- 3. Aggregate Results ---
 		deploymentAggregator := make(map[string]*AggregatedDeploymentView)
 		clusterDistribution := make(map[string]int)
-		
+
 		type nsHealth struct {
 			Total     int
 			Unhealthy int
@@ -80,12 +79,12 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 			for _, dep := range res.Deployments {
 				// Update Stats
 				clusterDistribution[res.ClusterName]++
-				
+
 				if _, ok := namespaceHealthMap[dep.Namespace]; !ok {
 					namespaceHealthMap[dep.Namespace] = &nsHealth{}
 				}
 				namespaceHealthMap[dep.Namespace].Total++
-				
+
 				var desiredReplicas int32 = 1
 				if dep.Spec.Replicas != nil {
 					desiredReplicas = *dep.Spec.Replicas
@@ -120,19 +119,55 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 		// --- 4. Sort and Prepare Data ---
 		var finalDeployments []AggregatedDeploymentView
 		for _, agg := range deploymentAggregator {
-			clusterSet := make(map[string]bool); for _, c := range agg.Clusters { clusterSet[c] = true }; agg.Clusters = make([]string, 0, len(clusterSet)); for c := range clusterSet { agg.Clusters = append(agg.Clusters, c) }; sort.Strings(agg.Clusters)
-			namespaceSet := make(map[string]bool); for _, ns := range agg.Namespaces { namespaceSet[ns] = true }; agg.Namespaces = make([]string, 0, len(namespaceSet)); for ns := range namespaceSet { agg.Namespaces = append(agg.Namespaces, ns) }; sort.Strings(agg.Namespaces)
-			imageSet := make(map[string]bool); for _, img := range agg.Images { imageSet[img] = true }; agg.Images = make([]string, 0, len(imageSet)); for img := range imageSet { agg.Images = append(agg.Images, img) }; sort.Strings(agg.Images)
-			strategySet := make(map[string]bool); for _, s := range agg.Strategies { strategySet[s] = true }; agg.Strategies = make([]string, 0, len(strategySet)); for s := range strategySet { agg.Strategies = append(agg.Strategies, s) }; sort.Strings(agg.Strategies)
+			clusterSet := make(map[string]bool)
+			for _, c := range agg.Clusters {
+				clusterSet[c] = true
+			}
+			agg.Clusters = make([]string, 0, len(clusterSet))
+			for c := range clusterSet {
+				agg.Clusters = append(agg.Clusters, c)
+			}
+			sort.Strings(agg.Clusters)
+			namespaceSet := make(map[string]bool)
+			for _, ns := range agg.Namespaces {
+				namespaceSet[ns] = true
+			}
+			agg.Namespaces = make([]string, 0, len(namespaceSet))
+			for ns := range namespaceSet {
+				agg.Namespaces = append(agg.Namespaces, ns)
+			}
+			sort.Strings(agg.Namespaces)
+			imageSet := make(map[string]bool)
+			for _, img := range agg.Images {
+				imageSet[img] = true
+			}
+			agg.Images = make([]string, 0, len(imageSet))
+			for img := range imageSet {
+				agg.Images = append(agg.Images, img)
+			}
+			sort.Strings(agg.Images)
+			strategySet := make(map[string]bool)
+			for _, s := range agg.Strategies {
+				strategySet[s] = true
+			}
+			agg.Strategies = make([]string, 0, len(strategySet))
+			for s := range strategySet {
+				agg.Strategies = append(agg.Strategies, s)
+			}
+			sort.Strings(agg.Strategies)
 			finalDeployments = append(finalDeployments, *agg)
 		}
 		sort.Slice(finalDeployments, func(i, j int) bool { return finalDeployments[i].Name < finalDeployments[j].Name })
-		
-		var clusterStats []ClusterStat; for n, c := range clusterDistribution { clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c}) }; sort.Slice(clusterStats, func(i, j int) bool { return clusterStats[i].Name < clusterStats[j].Name })
-		
+
+		var clusterStats []ClusterStat
+		for n, c := range clusterDistribution {
+			clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c})
+		}
+		sort.Slice(clusterStats, func(i, j int) bool { return clusterStats[i].Name < clusterStats[j].Name })
+
 		var namespaceStats []NamespaceStat
 		for n, h := range namespaceHealthMap {
-			color := "#10b981" 
+			color := "#10b981"
 			detail := ""
 			if h.Unhealthy > 0 {
 				color = "#f59e0b"
@@ -169,8 +204,8 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 			Deployments:            finalDeployments,
 			TotalUniqueDeployments: len(deploymentAggregator),
 			ClusterStats:           clusterStats,
-			NamespaceStats:         namespaceStats,    
-			NamespaceBarStats:      namespaceBarStats, 
+			NamespaceStats:         namespaceStats,
+			NamespaceBarStats:      namespaceBarStats,
 		}
 		return c.Render(200, "deployments.html", data)
 	}
@@ -389,6 +424,8 @@ func getDeploymentRolloutHistory(ctx context.Context, client *kubernetes.Clients
 	}
 
 	var history []RolloutHistoryInfo
+	// Get current revision of the deployment
+	currentRevision := dep.Annotations["deployment.kubernetes.io/revision"]
 
 	for _, rs := range rsList.Items {
 		isOwned := false
@@ -418,8 +455,23 @@ func getDeploymentRolloutHistory(ctx context.Context, client *kubernetes.Clients
 			images = append(images, c.Image)
 		}
 
+		// Calculate replicas
+		var desired int32
+		if rs.Spec.Replicas != nil {
+			desired = *rs.Spec.Replicas
+		}
+		replicaStr := fmt.Sprintf("%d/%d", rs.Status.ReadyReplicas, desired)
+
+		isActive := false
+		if revStr == currentRevision {
+			isActive = true
+		}
+
 		history = append(history, RolloutHistoryInfo{
 			Revision:    rev,
+			Name:        rs.Name,
+			Replicas:    replicaStr,
+			IsActive:    isActive,
 			ChangeCause: cause,
 			Age:         formatAge(rs.CreationTimestamp),
 			Images:      images,

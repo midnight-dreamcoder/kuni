@@ -30,7 +30,6 @@ func ParallelFetch[T any](clients []KubeClient, fetchFn func(KubeClient) (T, err
 		wg.Add(1)
 		go func(c KubeClient) {
 			defer wg.Done()
-			// Execute the provided fetch function
 			res, err := fetchFn(c)
 			
 			mutex.Lock()
@@ -57,12 +56,10 @@ func formatMemory(q *resource.Quantity) string {
 	if q.IsZero() {
 		return "0"
 	}
-	// Format as Gi with one decimal place
 	valGi := float64(q.Value()) / (1024 * 1024 * 1024)
 	if valGi >= 1 {
 		return fmt.Sprintf("%.1f Gi", valGi)
 	}
-	// Otherwise, format as Mi
 	valMi := float64(q.Value()) / (1024 * 1024)
 	return fmt.Sprintf("%.0f Mi", valMi)
 }
@@ -72,7 +69,6 @@ func formatCpu(q *resource.Quantity) string {
 	if q.IsZero() {
 		return "0"
 	}
-	// Format as cores with 2 decimal places
 	return fmt.Sprintf("%.2f", q.AsApproximateFloat64())
 }
 
@@ -105,12 +101,10 @@ func getRequestFilter(c echo.Context) (int, string, string) {
 func getFilesToProcess(c echo.Context, pattern string) ([]string, error) {
 	selectedFiles := c.QueryParams()["c"]
 	
-	// If no filter is provided, return all files matching the global pattern
 	if len(selectedFiles) == 0 {
 		return filepath.Glob(pattern)
 	}
 
-	// Create a lookup set for selected filenames
 	allowedSet := make(map[string]bool)
 	for _, name := range selectedFiles {
 		allowedSet[name] = true
@@ -124,7 +118,6 @@ func getFilesToProcess(c echo.Context, pattern string) ([]string, error) {
 	var filesToUse []string
 	for _, path := range allFiles {
 		filename := filepath.Base(path)
-		// Check if this specific file was selected
 		if allowedSet[filename] {
 			filesToUse = append(filesToUse, path)
 		}
@@ -132,8 +125,7 @@ func getFilesToProcess(c echo.Context, pattern string) ([]string, error) {
 	return filesToUse, nil
 }
 
-// createClients loops through a list of config files and returns
-// a list of usable clients and a list of error messages.
+// createClients loops through a list of config files and returns clients
 func createClients(files []string) ([]KubeClient, []string) {
 	var clients []KubeClient
 	var errors []string
@@ -200,8 +192,7 @@ func getNodeStatus(node v1.Node) (string, string) {
 	return "Unknown", ""
 }
 
-// findClient finds a single clientset based on a context name,
-// searching all config files matching the pattern.
+// findClient finds a single clientset based on a context name
 func findClient(pattern string, clusterContextName string) (*kubernetes.Clientset, error) {
 	allFiles, err := filepath.Glob(pattern)
 	if err != nil {
@@ -261,7 +252,6 @@ func findMetricsClient(pattern string, clusterContextName string) (*metrics.Clie
 
 // --- Search Helper Functions ---
 
-// searchClusters just checks context names (no API call)
 func searchClusters(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for _, client := range clients {
@@ -277,7 +267,6 @@ func searchClusters(re *regexp.Regexp, clients []KubeClient, results chan<- Sear
 	}
 }
 
-// searchNamespaces performs regex search on namespaces
 func searchNamespaces(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var internalWg sync.WaitGroup
@@ -288,9 +277,7 @@ func searchNamespaces(re *regexp.Regexp, clients []KubeClient, results chan<- Se
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			nsList, err := client.Clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil {
-				return
-			}
+			if err != nil { return }
 			for _, ns := range nsList.Items {
 				if re.MatchString(ns.Name) {
 					results <- SearchResult{
@@ -308,7 +295,6 @@ func searchNamespaces(re *regexp.Regexp, clients []KubeClient, results chan<- Se
 	internalWg.Wait()
 }
 
-// searchDeployments performs regex search on deployments
 func searchDeployments(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var internalWg sync.WaitGroup
@@ -319,9 +305,7 @@ func searchDeployments(re *regexp.Regexp, clients []KubeClient, results chan<- S
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			depList, err := client.Clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil {
-				return
-			}
+			if err != nil { return }
 			for _, dep := range depList.Items {
 				var matches []MatchInfo
 				if re.MatchString(dep.Name) {
@@ -334,9 +318,7 @@ func searchDeployments(re *regexp.Regexp, clients []KubeClient, results chan<- S
 				}
 				if len(matches) > 0 {
 					var desiredReplicas int32 = 1
-					if dep.Spec.Replicas != nil {
-						desiredReplicas = *dep.Spec.Replicas
-					}
+					if dep.Spec.Replicas != nil { desiredReplicas = *dep.Spec.Replicas }
 					readyStr := fmt.Sprintf("%d/%d Ready", dep.Status.ReadyReplicas, desiredReplicas)
 					results <- SearchResult{
 						Type:      "Deployment",
@@ -354,7 +336,6 @@ func searchDeployments(re *regexp.Regexp, clients []KubeClient, results chan<- S
 	internalWg.Wait()
 }
 
-// searchPods performs regex search on pods
 func searchPods(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var internalWg sync.WaitGroup
@@ -365,9 +346,7 @@ func searchPods(re *regexp.Regexp, clients []KubeClient, results chan<- SearchRe
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			podList, err := client.Clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil {
-				return
-			}
+			if err != nil { return }
 			for _, pod := range podList.Items {
 				var matches []MatchInfo
 				if re.MatchString(pod.Name) {
@@ -378,9 +357,7 @@ func searchPods(re *regexp.Regexp, clients []KubeClient, results chan<- SearchRe
 				}
 				if len(matches) > 0 {
 					restartCount := 0
-					for _, cs := range pod.Status.ContainerStatuses {
-						restartCount += int(cs.RestartCount)
-					}
+					for _, cs := range pod.Status.ContainerStatuses { restartCount += int(cs.RestartCount) }
 					restartStr := fmt.Sprintf("%d Restarts", restartCount)
 					results <- SearchResult{
 						Type:      "Pod",
@@ -400,7 +377,6 @@ func searchPods(re *regexp.Regexp, clients []KubeClient, results chan<- SearchRe
 	internalWg.Wait()
 }
 
-// searchReplicaSets performs regex search on replicasets
 func searchReplicaSets(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var internalWg sync.WaitGroup
@@ -411,15 +387,11 @@ func searchReplicaSets(re *regexp.Regexp, clients []KubeClient, results chan<- S
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			rsList, err := client.Clientset.AppsV1().ReplicaSets("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil {
-				return
-			}
+			if err != nil { return }
 			for _, rs := range rsList.Items {
 				if re.MatchString(rs.Name) {
 					var desiredReplicas int32 = 1
-					if rs.Spec.Replicas != nil {
-						desiredReplicas = *rs.Spec.Replicas
-					}
+					if rs.Spec.Replicas != nil { desiredReplicas = *rs.Spec.Replicas }
 					readyStr := fmt.Sprintf("%d/%d Ready", rs.Status.ReadyReplicas, desiredReplicas)
 					results <- SearchResult{
 						Type:       "ReplicaSet",
@@ -437,7 +409,6 @@ func searchReplicaSets(re *regexp.Regexp, clients []KubeClient, results chan<- S
 	internalWg.Wait()
 }
 
-// searchDaemonSets performs regex search on daemonsets
 func searchDaemonSets(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var internalWg sync.WaitGroup
@@ -448,9 +419,7 @@ func searchDaemonSets(re *regexp.Regexp, clients []KubeClient, results chan<- Se
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			dsList, err := client.Clientset.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil {
-				return
-			}
+			if err != nil { return }
 			for _, ds := range dsList.Items {
 				if re.MatchString(ds.Name) {
 					readyStr := fmt.Sprintf("%d/%d Ready", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled)
@@ -471,7 +440,6 @@ func searchDaemonSets(re *regexp.Regexp, clients []KubeClient, results chan<- Se
 	internalWg.Wait()
 }
 
-// searchStatefulSets performs regex search on statefulsets
 func searchStatefulSets(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var internalWg sync.WaitGroup
@@ -482,15 +450,11 @@ func searchStatefulSets(re *regexp.Regexp, clients []KubeClient, results chan<- 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			ssList, err := client.Clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil {
-				return
-			}
+			if err != nil { return }
 			for _, ss := range ssList.Items {
 				if re.MatchString(ss.Name) {
 					var desiredReplicas int32 = 1
-					if ss.Spec.Replicas != nil {
-						desiredReplicas = *ss.Spec.Replicas
-					}
+					if ss.Spec.Replicas != nil { desiredReplicas = *ss.Spec.Replicas }
 					readyStr := fmt.Sprintf("%d/%d Ready", ss.Status.ReadyReplicas, desiredReplicas)
 					results <- SearchResult{
 						Type:       "StatefulSet",
@@ -509,7 +473,6 @@ func searchStatefulSets(re *regexp.Regexp, clients []KubeClient, results chan<- 
 	internalWg.Wait()
 }
 
-// searchConfigMaps performs regex search on configmaps
 func searchConfigMaps(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var internalWg sync.WaitGroup
@@ -520,9 +483,7 @@ func searchConfigMaps(re *regexp.Regexp, clients []KubeClient, results chan<- Se
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			cmList, err := client.Clientset.CoreV1().ConfigMaps("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil {
-				return
-			}
+			if err != nil { return }
 			for _, cm := range cmList.Items {
 				if re.MatchString(cm.Name) {
 					infoStr := fmt.Sprintf("%d keys", len(cm.Data))
@@ -542,7 +503,6 @@ func searchConfigMaps(re *regexp.Regexp, clients []KubeClient, results chan<- Se
 	internalWg.Wait()
 }
 
-// searchNodes performs regex search on nodes
 func searchNodes(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var internalWg sync.WaitGroup
@@ -553,9 +513,7 @@ func searchNodes(re *regexp.Regexp, clients []KubeClient, results chan<- SearchR
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			nodeList, err := client.Clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil {
-				return
-			}
+			if err != nil { return }
 			for _, node := range nodeList.Items {
 				if re.MatchString(node.Name) {
 					status, _ := getNodeStatus(node)
@@ -575,7 +533,6 @@ func searchNodes(re *regexp.Regexp, clients []KubeClient, results chan<- SearchR
 	internalWg.Wait()
 }
 
-// searchPersistentVolumes performs regex search on PVs
 func searchPersistentVolumes(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var internalWg sync.WaitGroup
@@ -586,9 +543,7 @@ func searchPersistentVolumes(re *regexp.Regexp, clients []KubeClient, results ch
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			pvList, err := client.Clientset.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil {
-				return
-			}
+			if err != nil { return }
 			for _, pv := range pvList.Items {
 				if re.MatchString(pv.Name) {
 					storage := "N/A"
@@ -621,21 +576,19 @@ func searchServices(re *regexp.Regexp, clients []KubeClient, results chan<- Sear
 		go func(client KubeClient) {
 			defer internalWg.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			// Services are in CoreV1
 			svcList, err := client.Clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil {
-				return
-			}
+			if err != nil { return }
 			for _, svc := range svcList.Items {
 				if re.MatchString(svc.Name) {
+					// FIXED: Corrected URL to point to /service/detail
 					results <- SearchResult{
 						Type:       "Service",
 						Name:       svc.Name,
 						Cluster:    client.ContextName,
 						Namespace:  svc.Namespace,
 						Matches:    []MatchInfo{{Field: "Name", Value: svc.Name}},
-						URL:        fmt.Sprintf("/search?q=%s", url.QueryEscape(svc.Name)), // No detail page yet
+						URL:        fmt.Sprintf("/service/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(svc.Name), url.QueryEscape(svc.Namespace), url.QueryEscape(client.ContextName)),
 						Info:       svc.Spec.ClusterIP,
 						Status:     string(svc.Spec.Type),
 					}
@@ -673,24 +626,21 @@ func searchPVCs(re *regexp.Regexp, clients []KubeClient, results chan<- SearchRe
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			pvcList, err := client.Clientset.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil {
-				return
-			}
+			if err != nil { return }
 			for _, pvc := range pvcList.Items {
 				if re.MatchString(pvc.Name) {
-					// Get storage capacity
 					storage := "N/A"
 					if cap, ok := pvc.Status.Capacity[v1.ResourceStorage]; ok {
 						storage = formatMemory(&cap)
 					}
-
+					// FIXED: Corrected URL to point to /pvc/detail
 					results <- SearchResult{
 						Type:       "PVC",
 						Name:       pvc.Name,
 						Cluster:    client.ContextName,
 						Namespace:  pvc.Namespace,
 						Matches:    []MatchInfo{{Field: "Name", Value: pvc.Name}},
-						URL:        fmt.Sprintf("/search?q=%s", url.QueryEscape(pvc.Name)), // Link to search for now
+						URL:        fmt.Sprintf("/pvc/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(pvc.Name), url.QueryEscape(pvc.Namespace), url.QueryEscape(client.ContextName)),
 						Info:       storage,
 						Status:     string(pvc.Status.Phase),
 					}
@@ -701,7 +651,6 @@ func searchPVCs(re *regexp.Regexp, clients []KubeClient, results chan<- SearchRe
 	internalWg.Wait()
 }
 
-// searchServiceAccounts performs regex search on ServiceAccounts
 func searchServiceAccounts(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var internalWg sync.WaitGroup
@@ -710,12 +659,9 @@ func searchServiceAccounts(re *regexp.Regexp, clients []KubeClient, results chan
 		go func(client KubeClient) {
 			defer internalWg.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			// ServiceAccounts are in CoreV1
 			saList, err := client.Clientset.CoreV1().ServiceAccounts("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil {
-				return
-			}
+			if err != nil { return }
 			for _, sa := range saList.Items {
 				if re.MatchString(sa.Name) {
 					results <- SearchResult{
@@ -735,7 +681,6 @@ func searchServiceAccounts(re *regexp.Regexp, clients []KubeClient, results chan
 	internalWg.Wait()
 }
 
-// searchIngresses performs regex search on Ingresses
 func searchIngresses(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var internalWg sync.WaitGroup
@@ -747,14 +692,12 @@ func searchIngresses(re *regexp.Regexp, clients []KubeClient, results chan<- Sea
 			list, err := client.Clientset.NetworkingV1().Ingresses("").List(ctx, metav1.ListOptions{})
 			cancel()
 			if err != nil { return }
-			
 			for _, item := range list.Items {
 				if re.MatchString(item.Name) {
 					var hosts []string
 					for _, rule := range item.Spec.Rules {
 						if rule.Host != "" { hosts = append(hosts, rule.Host) }
 					}
-					
 					results <- SearchResult{
 						Type:       "Ingress",
 						Name:       item.Name,
@@ -772,7 +715,6 @@ func searchIngresses(re *regexp.Regexp, clients []KubeClient, results chan<- Sea
 	internalWg.Wait()
 }
 
-// searchSecrets performs regex search on Secrets
 func searchSecrets(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var internalWg sync.WaitGroup
@@ -781,12 +723,9 @@ func searchSecrets(re *regexp.Regexp, clients []KubeClient, results chan<- Searc
 		go func(client KubeClient) {
 			defer internalWg.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			// Secrets are in CoreV1
 			list, err := client.Clientset.CoreV1().Secrets("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil {
-				return
-			}
+			if err != nil { return }
 			for _, item := range list.Items {
 				if re.MatchString(item.Name) {
 					results <- SearchResult{
@@ -807,7 +746,6 @@ func searchSecrets(re *regexp.Regexp, clients []KubeClient, results chan<- Searc
 }
 
 // parseContainer extracts full technical info from a v1.Container
-// Used by Detail Views to populate ContainerInfo structs
 func parseContainer(c v1.Container) ContainerInfo {
 	info := ContainerInfo{
 		Name:    c.Name,
@@ -818,12 +756,10 @@ func parseContainer(c v1.Container) ContainerInfo {
 		Mounts:  make(map[string]string),
 	}
 
-	// Parse Ports
 	for _, p := range c.Ports {
 		info.Ports = append(info.Ports, fmt.Sprintf("%s:%d/%s", p.Name, p.ContainerPort, p.Protocol))
 	}
 
-	// Parse Env Vars
 	for _, e := range c.Env {
 		if e.Value != "" {
 			info.Env[e.Name] = e.Value
@@ -840,12 +776,10 @@ func parseContainer(c v1.Container) ContainerInfo {
 		}
 	}
 
-	// Parse Mounts
 	for _, m := range c.VolumeMounts {
 		info.Mounts[m.MountPath] = m.Name
 	}
 
-	// Parse Resources
 	req := c.Resources.Requests
 	lim := c.Resources.Limits
 	if len(req) > 0 || len(lim) > 0 {

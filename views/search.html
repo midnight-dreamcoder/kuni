@@ -3,197 +3,195 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ .Title }} - K8s Universal Inspector</title>
+    <title>Search - K8s Universal Inspector</title>
     <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
-    <style>
-        .search-page-container {
-            max-width: 900px;
-            margin: 2rem auto 0 auto;
-        }
-        .search-bar-lg {
-            width: 100%;
-            padding: 1.25rem;
-            font-size: 1.5rem;
-            border: 1px solid #374151;
-            background: #1F2937;
-            color: #e5e7eb;
-            border-radius: 8px;
-            box-sizing: border-box;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            font-family: 'IBM Plex Mono', monospace;
-            caret-color: #22d3ee;
-        }
-        .search-bar-lg:focus {
-            outline: none;
-            border-color: #22d3ee;
-            box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.1);
-        }
-        .search-bar-lg.regex-error {
-            border-color: #f87171;
-            background-color: rgba(239, 68, 68, 0.1);
-        }
-        .search-submit {
-            display: block;
-            width: 100%;
-            padding: 1rem;
-            margin-top: 1rem;
-            background-color: #22d3ee;
-            color: #111827;
-            border: none;
-            font-size: 1.1rem;
-            font-weight: 600;
-            border-radius: 8px;
-            cursor: pointer;
-        }
-        .search-results-container {
-            margin-top: 2.5rem;
-        }
-        .result-item {
-            background: #1F2937;
-            border: 1px solid #374151;
-            border-radius: 8px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.15);
-            margin-bottom: 1rem;
-            padding: 1.5rem;
-            display: flex;
-            align-items: center;
-        }
-        .result-icon {
-            font-size: 1.5rem;
-            margin-right: 1.5rem;
-            width: 40px;
-            text-align: center;
-        }
-        .result-info {
-            flex: 1;
-        }
-        .result-info a {
-            font-size: 1.1rem;
-            font-weight: 600;
-            color: #22d3ee;
-            text-decoration: none;
-        }
-        .result-info a:hover {
-            text-decoration: underline;
-        }
-        .result-location {
-            font-size: 0.9rem;
-            color: #9ca3af;
-            margin: 0.25rem 0;
-        }
-        .result-match {
-            font-size: 0.9rem;
-            color: #f59e0b;
-            background-color: rgba(245, 158, 11, 0.1);
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            display: inline-block;
-            word-break: break-all;
-        }
-        .result-match + .result-match {
-            margin-top: 4px;
-        }
-        .search-notice {
-            text-align: center;
-            color: #9ca3af;
-            padding: 2rem;
-            font-size: 1.1rem;
-        }
-        .result-extra {
-            margin-left: 1.5rem;
-            text-align: right;
-            min-width: 120px;
-        }
-        .info-tag {
-            display: block;
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 0.9rem;
-            color: #9ca3af;
-            margin-top: 0.25rem;
-        }
-        .result-extra .status {
-            padding: 0.2rem 0.5rem;
-            font-size: 0.75rem;
-        }
-    </style>
 </head>
 <body>
 
     {{ template "sidebar" . }}
 
     <main class="main-content">
-        <h1>{{ .Title }}</h1>
+        <h1>Global Search</h1>
 
-        <div class="search-page-container">
-            <form method="GET" action="/search">
-                <input type="text" name="q" class="search-bar-lg {{ if .Error }}regex-error{{ end }}" 
-                       placeholder="Search all resources (regex supported)..." value="{{ .Query }}">
-                <button type="submit" class="search-submit">Search</button>
+        <div class="search-container" style="max-width: 800px;">
+            <form id="searchForm" style="display: flex; gap: 1rem;">
+                <input type="text" id="queryInput" name="q" value="{{ .Query }}" class="input-dark" placeholder="Enter regex (e.g. ^prod-.*-db$)..." autofocus>
+                <button type="submit" class="btn btn-primary" id="searchBtn">Search</button>
             </form>
+        </div>
 
-            <div class="search-results-container">
-                {{ if .Error }}
-                    <div class="errors">
-                        <h2>Invalid Regex</h2>
-                        <p style="padding: 1rem 1.5rem;">{{ .Error }}</p>
-                    </div>
-                {{ else if .Query }}
-                    {{ if .Results }}
-                        <h3 style="color: #9ca3af; font-weight: 500;">Found {{ len .Results }} results for "<strong style="color: #e5e7eb;">{{ .Query }}</strong>"</h3>
-                        {{ range .Results }}
-                        <div class="result-item">
-                            <div class="result-icon">
-                                {{ if eq .Type "Cluster" }}🖥️
-                                {{ else if eq .Type "Namespace" }}📦
-                                {{ else if eq .Type "Deployment" }}🚀
-                                {{ else if eq .Type "Pod" }}🎛️
-                                {{ else if eq .Type "ReplicaSet" }}🔄
-                                {{ else if eq .Type "DaemonSet" }}🛡️
-                                {{ else if eq .Type "StatefulSet" }}💾
-                                {{ else if eq .Type "Service" }}🌐
-                                {{ else if eq .Type "ServiceAccount" }}🔑
-                                {{ else if eq .Type "ConfigMap" }}📜
-                                {{ else if eq .Type "Secret" }}🔒
-                                {{ else if eq .Type "PersistentVolume" }}💽
-                                {{ end }}
-                            </div>
-                            <div class="result-info">
-                                <a href="{{ .URL }}">{{ .Name }}</a>
-                                <div class="result-location">
-                                    {{ .Type }} on <strong>{{ .Cluster }}</strong>
-                                    {{ if .Namespace }} in <strong>{{ .Namespace }}</strong>{{ end }}
-                                    {{ if .Node }} on <strong>{{ .Node }}</strong>{{ end }}
-                                </div>
-                                {{ range .Matches }}
-                                <div class="result-match" title="{{ .Field }}">
-                                    Matched {{ .Field }}: <strong>{{ .Value }}</strong>
-                                </div>
-                                {{ end }}
-                            </div>
-                            
-                            <div class="result-extra">
-                                {{ if .Status }}
-                                    <span class="status status-{{ .Status | ToLower }}">{{ .Status }}</span>
-                                {{ end }}
-                                {{ if .Info }}
-                                    <span class="info-tag">{{ .Info }}</span>
-                                {{ end }}
-                            </div>
-                        </div>
-                        {{ end }}
-                    {{ else }}
-                        <div class="search-notice">
-                            No results found for "{{ .Query }}".
-                        </div>
-                    {{ end }}
-                {{ else }}
-                    <div class="search-notice">
-                        Enter a query to search all clusters and resources.
-                    </div>
-                {{ end }}
+        <div id="statusContainer" style="margin: 0 auto 1.5rem auto; max-width: 1600px; display: none;">
+            <div style="background: #1F2937; padding: 1rem 1.5rem; border-radius: 8px; border: 1px solid #374151; display: flex; align-items: center; justify-content: space-between;">
+                <span id="statusText" style="color: #9ca3af; font-family: 'IBM Plex Mono', monospace;">Searching...</span>
+                <div id="loader" style="width: 20px; height: 20px; border: 3px solid #374151; border-top: 3px solid #22d3ee; border-radius: 50%; animation: spin 1s linear infinite;"></div>
             </div>
         </div>
 
+        <div class="container">
+            <h2>Results <span id="resultCount" class="title-count">(0)</span></h2>
+            <table id="mainTable">
+                <thead>
+                    <tr>
+                        <th class="sortable-header" data-sort-type="string">Kind</th>
+                        <th class="sortable-header" data-sort-type="string">Name</th>
+                        <th class="sortable-header" data-sort-type="string">Namespace</th>
+                        <th class="sortable-header" data-sort-type="string">Cluster</th>
+                        <th>Matched Property</th>
+                    </tr>
+                </thead>
+                <tbody id="resultsBody">
+                    <tr id="emptyRow"><td colspan="5" class="no-data">Enter a query to start searching.</td></tr>
+                </tbody>
+            </table>
+        </div>
     </main>
+
+    <script src="/static/js/table_utils.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const form = document.getElementById('searchForm');
+            const queryInput = document.getElementById('queryInput');
+            const resultsBody = document.getElementById('resultsBody');
+            const statusContainer = document.getElementById('statusContainer');
+            const statusText = document.getElementById('statusText');
+            const loader = document.getElementById('loader');
+            const resultCountSpan = document.getElementById('resultCount');
+            const emptyRow = document.getElementById('emptyRow');
+
+            // If page loaded with a query param (e.g. from a link), auto-search
+            const urlParams = new URLSearchParams(window.location.search);
+            const initialQuery = urlParams.get('q');
+            if (initialQuery) {
+                queryInput.value = initialQuery;
+                performSearch(initialQuery);
+            }
+
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const query = queryInput.value.trim();
+                if (!query) return;
+                
+                // Update URL without reloading
+                const url = new URL(window.location);
+                url.searchParams.set('q', query);
+                window.history.pushState({}, '', url);
+                
+                performSearch(query);
+            });
+
+            function performSearch(query) {
+                // Reset UI
+                resultsBody.innerHTML = '';
+                statusContainer.style.display = 'block';
+                statusText.textContent = 'Starting search...';
+                loader.style.display = 'block';
+                resultCountSpan.textContent = '(0)';
+                
+                // Keep track of active requests
+                const resourceTypes = [
+                    "cluster", "namespace", "deployment", "pod", "replicaset", 
+                    "daemonset", "statefulset", "configmap", "node", "pv", 
+                    "pvc", "service", "ingress", "secret", "serviceaccount"
+                ];
+                
+                let activeRequests = resourceTypes.length;
+                let totalResults = 0;
+
+                resourceTypes.forEach(type => {
+                    const url = `/api/search?q=${encodeURIComponent(query)}&type=${type}{{ .QueryString }}`; // Append current cluster filters if any
+                    
+                    fetch(url)
+                        .then(response => {
+                            if (!response.ok) throw new Error("Network error");
+                            return response.json();
+                        })
+                        .then(data => {
+                            if (data && data.length > 0) {
+                                totalResults += data.length;
+                                resultCountSpan.textContent = `(${totalResults})`;
+                                appendRows(data);
+                            }
+                        })
+                        .catch(err => {
+                            console.error(`Error fetching ${type}:`, err);
+                        })
+                        .finally(() => {
+                            activeRequests--;
+                            statusText.textContent = `Searching... (${resourceTypes.length - activeRequests}/${resourceTypes.length} sources scanned)`;
+                            
+                            if (activeRequests === 0) {
+                                finishSearch(totalResults);
+                            }
+                        });
+                });
+            }
+
+            function appendRows(data) {
+                data.forEach(item => {
+                    const row = document.createElement('tr');
+                    
+                    // Kind Column
+                    const kindCell = document.createElement('td');
+                    kindCell.innerHTML = `<span class="strategy-tag">${item.Type}</span>`;
+                    row.appendChild(kindCell);
+
+                    // Name Column (Link logic)
+                    const nameCell = document.createElement('td');
+                    if (item.URL && item.URL !== "#") {
+                        nameCell.innerHTML = `<a href="${item.URL}{{ .QueryString }}" class="deployment-link">${item.Name}</a>`;
+                    } else {
+                        nameCell.textContent = item.Name;
+                    }
+                    row.appendChild(nameCell);
+
+                    // Namespace Column (Link logic - UPDATED)
+                    const nsCell = document.createElement('td');
+                    if (item.Namespace) {
+                        // Create link to namespace detail
+                        const nsUrl = `/namespace/detail?name=${encodeURIComponent(item.Namespace)}{{ .QueryString }}`;
+                        nsCell.innerHTML = `<a href="${nsUrl}" class="deployment-link">${item.Namespace}</a>`;
+                    } else {
+                        nsCell.textContent = '-';
+                    }
+                    row.appendChild(nsCell);
+
+                    // Cluster
+                    const clusterCell = document.createElement('td');
+                    clusterCell.className = 'cluster-name';
+                    clusterCell.textContent = item.Cluster;
+                    row.appendChild(clusterCell);
+
+                    // Matches
+                    const matchCell = document.createElement('td');
+                    if (item.Matches) {
+                        item.Matches.forEach(m => {
+                            const div = document.createElement('div');
+                            div.style.fontSize = '0.85rem';
+                            div.style.color = '#9ca3af';
+                            div.textContent = `${m.Field}: ${m.Value}`;
+                            matchCell.appendChild(div);
+                        });
+                    }
+                    row.appendChild(matchCell);
+
+                    resultsBody.appendChild(row);
+                });
+            }
+
+            function finishSearch(count) {
+                loader.style.display = 'none';
+                if (count === 0) {
+                    statusText.textContent = 'Search complete. No matches found.';
+                    resultsBody.innerHTML = '<tr><td colspan="5" class="no-data">No matches found.</td></tr>';
+                } else {
+                    statusText.textContent = `Search complete. Found ${count} matches.`;
+                }
+            }
+        });
+    </script>
+
+    <style>
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
 </body>
 </html>

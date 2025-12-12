@@ -24,7 +24,7 @@ func (t *TemplateRenderer) Render(w io.Writer, name string, data interface{}, c 
 }
 
 func main() {
-	// 1. Load Config (Populates global CurrentConfig)
+	// 1. Load Config
 	LoadConfig("config.json")
 	
 	// --- 2. Initialize Echo ---
@@ -109,7 +109,11 @@ func main() {
 	// Register routes
 	e.GET("/", handleSearch(pattern))
 	e.GET("/overview", handleGetClusterOverview(pattern))
+	
+	// SEARCH HANDLERS
 	e.GET("/search", handleSearch(pattern))
+	e.GET("/api/search", handleSearchAPI(pattern)) 
+
 	e.GET("/workload", handleGetWorkloadOverview(pattern))
 	e.GET("/clusters", handleGetClusters(pattern))
 	e.GET("/cluster/detail", handleGetClusterDetail(pattern))
@@ -147,7 +151,7 @@ func main() {
 	e.GET("/secret/detail", handleGetSecretDetail(pattern))
 
 	// --- 4. Start the Server using Config ---
-	port := ":8080" // Default fallback
+	port := ":8080"
 	if CurrentConfig != nil && CurrentConfig.ServerPort != "" {
 		port = CurrentConfig.ServerPort
 	}

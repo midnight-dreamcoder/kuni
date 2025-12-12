@@ -813,6 +813,9 @@ type RolloutStatusInfo struct {
 // RolloutHistoryInfo holds one revision (like 'kubectl rollout history')
 type RolloutHistoryInfo struct {
 	Revision    int64
+	Name        string
+	Replicas    string
+	IsActive    bool
 	ChangeCause string
 	Age         string
 	Images      []string

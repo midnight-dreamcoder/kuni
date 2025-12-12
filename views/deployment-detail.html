@@ -67,11 +67,13 @@
                     <div class="detail-main">
                         
                         <div class="container" style="margin-top:0;">
-                            <h2>Rollout History</h2>
+                            <h2>ReplicaSets / History</h2>
                             <table>
                                 <thead>
                                     <tr>
                                         <th>Revision</th>
+                                        <th>ReplicaSet Name</th>
+                                        <th>Replicas</th>
                                         <th>Change Cause</th>
                                         <th>Age</th>
                                         <th>Images</th>
@@ -79,18 +81,29 @@
                                 </thead>
                                 <tbody>
                                     {{ range $details.RolloutHistory }}
-                                    <tr>
-                                        <td><span class="cluster-tag">#{{ .Revision }}</span></td>
-                                        <td style="white-space: normal; max-width: 300px; font-style: italic;">
+                                    <tr {{ if .IsActive }}style="background: rgba(16, 185, 129, 0.05); border-left: 2px solid #10b981;"{{ end }}>
+                                        <td>
+                                            <span class="cluster-tag">#{{ .Revision }}</span>
+                                            {{ if .IsActive }}
+                                                <span class="status status-ready" style="font-size:0.7em; margin-left:5px;">ACTIVE</span>
+                                            {{ end }}
+                                        </td>
+                                        <td style="white-space: normal; word-break: break-all; max-width: 250px;">
+                                            <a href="{{ MakeURL $.QueryString "/replicaset/detail" "name" .Name "namespace" $compName "cluster_name" $cluster }}" class="deployment-link">
+                                                {{ .Name }}
+                                            </a>
+                                        </td>
+                                        <td>{{ .Replicas }}</td>
+                                        <td style="white-space: normal; max-width: 200px; font-style: italic;">
                                             {{ if ne .ChangeCause "<none>" }}{{ .ChangeCause }}{{ else }}<span style="color:#6b7280">-</span>{{ end }}
                                         </td>
                                         <td>{{ .Age }}</td>
-                                        <td>
+                                        <td style="white-space: normal; word-break: break-all; max-width: 350px;">
                                             {{ range .Images }} <span class="image-tag" style="font-size:0.8rem;">{{ . }}</span> {{ end }}
                                         </td>
                                     </tr>
                                     {{ else }}
-                                    <tr><td colspan="4" class="no-data">No history found.</td></tr>
+                                    <tr><td colspan="6" class="no-data">No history found.</td></tr>
                                     {{ end }}
                                 </tbody>
                             </table>

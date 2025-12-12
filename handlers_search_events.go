@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"path/filepath"
+	"net/http"
 	"regexp"
 	"sort"
 	"sync"
@@ -13,14 +13,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// handleSearch performs a global regex search across all resources
+// handleSearch renders the search page shell immediately
 func handleSearch(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		selectedCount, queryString, cacheBuster := getRequestFilter(c)
-		allFiles, err := filepath.Glob(pattern)
-		if err != nil {
-			return c.String(500, "Error finding kubeconfig files")
-		}
 		
 		base := PageBase{
 			Title:                "Search",
@@ -33,66 +29,99 @@ func handleSearch(pattern string) echo.HandlerFunc {
 			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 		
+		// If query exists, we pass it to the view so the input box is pre-filled,
+		// but we do NOT execute the search here. The frontend will trigger it.
 		data := SearchPageData{
 			PageBase: base,
+			Query:    c.QueryParam("q"),
 		}
+
+		return c.Render(200, "search.html", data)
+	}
+}
+
+// handleSearchAPI executes a search for a specific resource type and returns JSON
+func handleSearchAPI(pattern string) echo.HandlerFunc {
+	return func(c echo.Context) error {
 		query := c.QueryParam("q")
-		data.Query = query
+		resourceType := c.QueryParam("type")
+		
 		if query == "" {
-			return c.Render(200, "search.html", data)
+			return c.JSON(http.StatusOK, []SearchResult{})
 		}
-		re, reErr := regexp.Compile(query)
-		if reErr != nil {
-			data.Error = fmt.Sprintf("Invalid Regex: %v", reErr)
-			return c.Render(200, "search.html", data)
+
+		re, err := regexp.Compile(query)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid Regex"})
 		}
-		clients, clientErrors := createClients(allFiles)
-		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
-		var wg sync.WaitGroup
+
+		// Prepare Clients (We do this per request to respect current file state)
+		filesToProcess, err := getFilesToProcess(c, pattern)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Config Error"})
+		}
+		clients, _ := createClients(filesToProcess) // We ignore client errors for the API to keep it simple
+
 		resultsChan := make(chan SearchResult, 100)
+		var wg sync.WaitGroup
 
-		// Fire off the helpers (these are defined in helpers.go)
-		wg.Add(12) 
-		go searchClusters(re, clients, resultsChan, &wg)
-		go searchNamespaces(re, clients, resultsChan, &wg)
-		go searchDeployments(re, clients, resultsChan, &wg)
-		go searchPods(re, clients, resultsChan, &wg)
-		go searchReplicaSets(re, clients, resultsChan, &wg)
-		go searchDaemonSets(re, clients, resultsChan, &wg)
-		go searchStatefulSets(re, clients, resultsChan, &wg)
-		go searchConfigMaps(re, clients, resultsChan, &wg)
-		go searchNodes(re, clients, resultsChan, &wg)
-		go searchPersistentVolumes(re, clients, resultsChan, &wg)
-		go searchPVCs(re, clients, resultsChan, &wg)
-		go searchIngresses(re, clients, resultsChan, &wg)
+		wg.Add(1)
+		
+		// Dispatch to the correct helper based on type
+        // (These functions are now defined in helpers.go)
+		switch resourceType {
+		case "cluster":
+			go searchClusters(re, clients, resultsChan, &wg)
+		case "namespace":
+			go searchNamespaces(re, clients, resultsChan, &wg)
+		case "deployment":
+			go searchDeployments(re, clients, resultsChan, &wg)
+		case "pod":
+			go searchPods(re, clients, resultsChan, &wg)
+		case "replicaset":
+			go searchReplicaSets(re, clients, resultsChan, &wg)
+		case "daemonset":
+			go searchDaemonSets(re, clients, resultsChan, &wg)
+		case "statefulset":
+			go searchStatefulSets(re, clients, resultsChan, &wg)
+		case "configmap":
+			go searchConfigMaps(re, clients, resultsChan, &wg)
+		case "node":
+			go searchNodes(re, clients, resultsChan, &wg)
+		case "pv":
+			go searchPersistentVolumes(re, clients, resultsChan, &wg)
+		case "pvc":
+			go searchPVCs(re, clients, resultsChan, &wg)
+		case "service":
+			go searchServices(re, clients, resultsChan, &wg)
+		case "ingress":
+			go searchIngresses(re, clients, resultsChan, &wg)
+		case "secret":
+			// Security check for secrets
+			if CurrentConfig.IsAdmin {
+				go searchSecrets(re, clients, resultsChan, &wg)
+			} else {
+				wg.Done()
+			}
+		case "serviceaccount":
+			go searchServiceAccounts(re, clients, resultsChan, &wg)
+		default:
+			wg.Done() // Invalid type, just return empty
+		}
 
+		// Closer routine
 		go func() {
 			wg.Wait()
 			close(resultsChan)
 		}()
 
-		aggregator := make(map[string]SearchResult)
+		// Collect results
+		var results []SearchResult
 		for res := range resultsChan {
-			key := fmt.Sprintf("%s-%s-%s-%s", res.Type, res.Cluster, res.Namespace, res.Name)
-			if existing, ok := aggregator[key]; ok {
-				existing.Matches = append(existing.Matches, res.Matches...)
-				aggregator[key] = existing
-			} else {
-				aggregator[key] = res
-			}
-		}
-		for _, res := range aggregator {
-			data.Results = append(data.Results, res)
+			results = append(results, res)
 		}
 
-		sort.Slice(data.Results, func(i, j int) bool {
-			if data.Results[i].Type != data.Results[j].Type {
-				return data.Results[i].Type < data.Results[j].Type
-			}
-			return data.Results[i].Name < data.Results[j].Name
-		})
-
-		return c.Render(200, "search.html", data)
+		return c.JSON(http.StatusOK, results)
 	}
 }
 
@@ -126,7 +155,6 @@ func handleGetEvents(pattern string) echo.HandlerFunc {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
 		}
 
-		// --- 1. Fetch Logic ---
 		type eventFetchResult struct {
 			ClusterName string
 			Events      []EventInfo
@@ -161,11 +189,9 @@ func handleGetEvents(pattern string) echo.HandlerFunc {
 			return eventFetchResult{ClusterName: client.ContextName, Events: filtered}, nil
 		}
 
-		// --- 2. Execute ---
 		results, fetchErrors := ParallelFetch(clients, fetchEvents)
 		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
 
-		// --- 3. Aggregate ---
 		var allEvents []EventInfo
 		clusterDistribution := make(map[string]int)
 		namespaceDistribution := make(map[string]int)
@@ -200,7 +226,6 @@ func handleGetEvents(pattern string) echo.HandlerFunc {
 			recentEvents = allEvents
 		}
 		
-		// Stats
 		var clusterStats []ClusterStat; for n, c := range clusterDistribution { clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c}) }; sort.Slice(clusterStats, func(i, j int) bool { return clusterStats[i].Name < clusterStats[j].Name })
 		
 		const topN = 10
@@ -222,7 +247,7 @@ func handleGetEvents(pattern string) echo.HandlerFunc {
 			var otherSum int; for _, o := range reasonStats[topN:] { otherSum += o.Count }; reasonStats = reasonStats[:topN]; reasonStats = append(reasonStats, ReasonStat{Reason: "Others", Count: otherSum})
 		}
 		
-		// --- HEATMAP CALCULATION ---
+		// Heatmap Calculation
 		heatmapData := make(map[string]map[string]map[string]int)
 		for _, name := range clusterNames {
 			heatmapData[name] = make(map[string]map[string]int)
@@ -268,6 +293,8 @@ func handleGetEvents(pattern string) echo.HandlerFunc {
 						}
 					}
 				}
+				
+				// getHeatLevel is defined in helpers.go
 				row.Cells = append(row.Cells, HeatmapCell{
 					Count:          totalCount,
 					Level:          getHeatLevel(totalCount),
