@@ -13,7 +13,7 @@
     <main class="main-content">
         <h1>{{ .Title }}</h1>
 
-        <div class="action-toolbar" style="grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));">
+        <div class="action-toolbar" style="grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));">
             
             <div class="tool-card">
                 <span class="tool-label">Import:</span>
@@ -26,16 +26,16 @@
             <div class="tool-card">
                 <span class="tool-label">AWS:</span>
                 <form action="/cluster/discover-eks" method="GET" class="upload-form" style="padding:0; flex-grow:1;">
-                    <input type="text" name="region" class="input-dark" placeholder="Region (e.g. us-east-1)">
-                    <button type="submit" class="btn btn-primary">Scan EKS</button>
+                    <input type="text" name="region" class="input-dark" placeholder="Region (e.g. us-east-1)" style="width: 140px;">
+                    <button type="submit" class="btn btn-primary">Scan</button>
                 </form>
             </div>
 
             <div class="tool-card">
                 <span class="tool-label">GCP:</span>
                 <form action="/cluster/discover-gke" method="GET" class="upload-form" style="padding:0; flex-grow:1;">
-                    <input type="text" name="project" class="input-dark" placeholder="Project ID" required>
-                    <button type="submit" class="btn btn-accent">Scan GKE</button>
+                    <input type="text" name="project" class="input-dark" placeholder="Project ID" required style="width: 140px;">
+                    <button type="submit" class="btn btn-accent">Scan</button>
                 </form>
             </div>
 
@@ -62,8 +62,15 @@
         <div class="container">
             <form method="GET" action="/clusters">
                 <div class="submit-bar">
-                    <button type="submit">Refresh Selected</button>
+                    <button type="submit" formaction="/overview" class="btn btn-primary">
+                        Check Cluster Overview
+                    </button>
+                    
+                    <button type="submit" formaction="/workload" class="btn btn-accent" style="margin-left: 0.5rem; background-color: var(--warning);">
+                        Check Workload Overview
+                    </button>
                 </div>
+                
                 <table id="mainTable">
                     <thead>
                         <tr>
@@ -113,11 +120,48 @@
 
     <script src="/static/js/table_utils.js"></script>
     <script>
-        // Page-specific Logic: Select All Checkbox
-        document.getElementById('selectAll').addEventListener('change', function() {
+        document.addEventListener('DOMContentLoaded', function() {
+            const selectAll = document.getElementById('selectAll');
             const checkboxes = document.querySelectorAll('input[name="c"]');
-            checkboxes.forEach((cb) => {
-                cb.checked = this.checked;
+            const rows = document.querySelectorAll('tbody tr');
+
+            // Helper to toggle visual style
+            function updateRowStyle(checkbox) {
+                const row = checkbox.closest('tr');
+                if (checkbox.checked) {
+                    row.classList.add('row-selected');
+                } else {
+                    row.classList.remove('row-selected');
+                }
+            }
+
+            // 1. Handle "Select All"
+            if (selectAll) {
+                selectAll.addEventListener('change', function() {
+                    checkboxes.forEach((cb) => {
+                        cb.checked = this.checked;
+                        updateRowStyle(cb);
+                    });
+                });
+            }
+
+            // 2. Handle Individual Checkboxes
+            checkboxes.forEach(cb => {
+                cb.addEventListener('change', () => updateRowStyle(cb));
+            });
+
+            // 3. Handle Row Click (Toggle Checkbox)
+            rows.forEach(row => {
+                row.addEventListener('click', (e) => {
+                    // Ignore clicks on links, inputs, or buttons
+                    if (e.target.tagName === 'A' || e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+                    
+                    const cb = row.querySelector('input[name="c"]');
+                    if (cb) {
+                        cb.checked = !cb.checked;
+                        updateRowStyle(cb);
+                    }
+                });
             });
         });
     </script>

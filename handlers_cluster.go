@@ -43,6 +43,7 @@ func handleGetClusters(pattern string) echo.HandlerFunc {
 			base.SuccessLogs = append(base.SuccessLogs, fmt.Sprintf("✅ %s", successParam))
 		}
 
+		// CHANGE: Always load ALL files to populate the list, regardless of selection
 		matchedFiles, err := filepath.Glob(pattern)
 		if err != nil {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Error finding kubeconfig files: %v", err))
@@ -53,6 +54,9 @@ func handleGetClusters(pattern string) echo.HandlerFunc {
 		for _, s := range selectedQuery {
 			selectedClustersMap[s] = true
 		}
+		
+		// If items are selected, we only ping those. If none, we ping all.
+		hasSelection := len(selectedClustersMap) > 0
 
 		var clusters []ClusterInfo
 		var wg sync.WaitGroup
@@ -67,12 +71,15 @@ func handleGetClusters(pattern string) echo.HandlerFunc {
 			go func(cfgFile string) {
 				defer wg.Done()
 				
-				contextName := filepath.Base(cfgFile)
+				configName := filepath.Base(cfgFile)
+				contextName := configName // Fallback name
+				
 				loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 				loadingRules.ExplicitPath = cfgFile
 				overrides := &clientcmd.ConfigOverrides{}
 				kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
 				
+				// Get Context Name (cheap operation)
 				rawConfig, rawErr := kubeConfig.RawConfig()
 				if rawErr == nil && rawConfig.CurrentContext != "" {
 					contextName = rawConfig.CurrentContext
@@ -80,13 +87,23 @@ func handleGetClusters(pattern string) echo.HandlerFunc {
 
 				info := ClusterInfo{
 					Name:       contextName,
-					ConfigName: filepath.Base(cfgFile),
+					ConfigName: configName,
 					Status:     "Unknown",
 					Latency:    "N/A",
 					Version:    "N/A",
 					Provider:   "Unknown",
 				}
 
+				// Check if we should skip the heavy ping
+				if hasSelection && !selectedClustersMap[configName] {
+					info.Status = "Not Checked"
+					mutex.Lock()
+					clusters = append(clusters, info)
+					mutex.Unlock()
+					return
+				}
+
+				// Continue with Ping
 				config, err := kubeConfig.ClientConfig()
 				if err != nil {
 					info.Status = fmt.Sprintf("Invalid Config: %v", err)

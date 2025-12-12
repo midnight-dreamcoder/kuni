@@ -19,6 +19,34 @@ import (
 	metrics "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
+// ParallelFetch abstracts the logic of querying multiple clusters concurrently.
+func ParallelFetch[T any](clients []KubeClient, fetchFn func(KubeClient) (T, error)) ([]T, []string) {
+	var wg sync.WaitGroup
+	var mutex sync.Mutex
+	results := make([]T, 0, len(clients))
+	errors := make([]string, 0)
+
+	for _, client := range clients {
+		wg.Add(1)
+		go func(c KubeClient) {
+			defer wg.Done()
+			// Execute the provided fetch function
+			res, err := fetchFn(c)
+			
+			mutex.Lock()
+			defer mutex.Unlock()
+			
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Cluster: %s | Error: %v", c.ContextName, err))
+			} else {
+				results = append(results, res)
+			}
+		}(client)
+	}
+	wg.Wait()
+	return results, errors
+}
+
 // formatAge is a helper function to create a human-readable "age" string
 func formatAge(t metav1.Time) string {
 	return duration.HumanDuration(time.Since(t.Time))
@@ -73,43 +101,34 @@ func getRequestFilter(c echo.Context) (int, string, string) {
 	return selectedCount, queryString, cacheBuster
 }
 
-// getFilesToProcess filters config files based on a list of CONTEXT NAMES
+// getFilesToProcess filters config files based on a list of FILENAMES (from query 'c')
 func getFilesToProcess(c echo.Context, pattern string) ([]string, error) {
-	selectedContexts := c.QueryParams()["c"]
-	if len(selectedContexts) == 0 {
+	selectedFiles := c.QueryParams()["c"]
+	
+	// If no filter is provided, return all files matching the global pattern
+	if len(selectedFiles) == 0 {
 		return filepath.Glob(pattern)
 	}
+
+	// Create a lookup set for selected filenames
 	allowedSet := make(map[string]bool)
-	for _, name := range selectedContexts {
+	for _, name := range selectedFiles {
 		allowedSet[name] = true
 	}
+
 	allFiles, err := filepath.Glob(pattern)
 	if err != nil {
 		return nil, err
 	}
+
 	var filesToUse []string
-	var mutex sync.Mutex
-	var wg sync.WaitGroup
-	for _, configFile := range allFiles {
-		wg.Add(1)
-		go func(path string) {
-			defer wg.Done()
-			loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-			loadingRules.ExplicitPath = path
-			overrides := &clientcmd.ConfigOverrides{}
-			kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
-			rawConfig, err := kubeConfig.RawConfig()
-			if err != nil {
-				return
-			}
-			if allowedSet[rawConfig.CurrentContext] {
-				mutex.Lock()
-				filesToUse = append(filesToUse, path)
-				mutex.Unlock()
-			}
-		}(configFile)
+	for _, path := range allFiles {
+		filename := filepath.Base(path)
+		// Check if this specific file was selected
+		if allowedSet[filename] {
+			filesToUse = append(filesToUse, path)
+		}
 	}
-	wg.Wait()
 	return filesToUse, nil
 }
 
@@ -836,31 +855,4 @@ func parseContainer(c v1.Container) ContainerInfo {
 	}
 
 	return info
-}
-
-// ParallelFetch abstracts the logic of querying multiple clusters
-func ParallelFetch[T any](clients []KubeClient, fetchFn func(KubeClient) (T, error)) ([]T, []string) {
-    var wg sync.WaitGroup
-    var mutex sync.Mutex
-    results := make([]T, 0, len(clients))
-    errors := make([]string, 0)
-
-    for _, client := range clients {
-        wg.Add(1)
-        go func(c KubeClient) {
-            defer wg.Done()
-            res, err := fetchFn(c)
-            
-            mutex.Lock()
-            defer mutex.Unlock()
-            
-            if err != nil {
-                errors = append(errors, fmt.Sprintf("Cluster: %s | Error: %v", c.ContextName, err))
-            } else {
-                results = append(results, res)
-            }
-        }(client)
-    }
-    wg.Wait()
-    return results, errors
 }

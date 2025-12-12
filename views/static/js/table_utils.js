@@ -7,15 +7,19 @@
 // Usage: <input onkeyup="filterTable('inputId', 'tableId')">
 function filterTable(inputId, tableId) {
     let input = document.getElementById(inputId);
+    if (!input) return;
+    
     let filter = input.value.toLowerCase();
     let table = document.getElementById(tableId);
+    if (!table) return;
+
     let tr = table.getElementsByTagName("tbody")[0].getElementsByTagName("tr");
     
     // Check if input is a valid regex
     let regex = null;
     try { 
         regex = new RegExp(filter, 'i'); 
-        input.classList.remove('regex-error'); // Assume you have CSS for this class
+        input.classList.remove('regex-error'); 
     } catch(e) { 
         input.classList.add('regex-error'); 
     }
@@ -38,15 +42,21 @@ function filterTable(inputId, tableId) {
 // Usage: Add class "sortable-header" and data attributes to <th>
 document.addEventListener('DOMContentLoaded', function() {
     const headers = document.querySelectorAll('th.sortable-header');
-    headers.forEach((header, colIndex) => {
+    headers.forEach(header => {
         header.addEventListener('click', () => {
-            const tableBody = header.closest('table').querySelector('tbody');
+            const table = header.closest('table');
+            const tableBody = table.querySelector('tbody');
+            const row = header.parentElement;
+            
+            // FIXED: Get the actual index of the TH among its siblings (tr.children)
+            // This accounts for non-sortable columns like checkboxes
+            const colIndex = Array.prototype.indexOf.call(row.children, header);
+
             const sortType = header.dataset.sortType || 'string'; // 'string', 'number', 'duration', 'size'
-            const sortKey = header.dataset.sortKey; // Optional: specific key logic if needed
             const currentAsc = header.classList.contains('sort-asc');
             
-            // Reset other headers
-            header.closest('tr').querySelectorAll('th').forEach(h => h.classList.remove('sort-asc', 'sort-desc'));
+            // Reset other headers in the same row
+            row.querySelectorAll('th').forEach(h => h.classList.remove('sort-asc', 'sort-desc'));
             
             // Toggle current
             if (!currentAsc) {
@@ -72,6 +82,7 @@ function sortRows(tableBody, colIndex, sortType, asc) {
         const bVal = getCellValue(b, colIndex);
         
         if (sortType === 'number') {
+            // parseFloat handles "15 ms", "10 nodes" etc correctly
             return (parseFloat(aVal) - parseFloat(bVal)) * dirModifier;
         } else if (sortType === 'duration') {
             return (parseDuration(aVal) - parseDuration(bVal)) * dirModifier;
@@ -88,13 +99,13 @@ function sortRows(tableBody, colIndex, sortType, asc) {
 function getCellValue(row, colIndex) {
     const cell = row.children[colIndex];
     if (!cell) return '';
+    // Prefer textContent to ignore HTML tags, trim whitespace
     return (cell.textContent || cell.innerText).trim();
 }
 
 // Helper: Parse "2d10h", "45m", "10s" into seconds
 function parseDuration(str) {
     if (!str || str === "N/A" || str === "<none>") return -1;
-    // Simple approximation (expand as needed for precise parsing)
     let total = 0;
     const days = str.match(/(\d+)d/);
     const hours = str.match(/(\d+)h/);
@@ -105,6 +116,11 @@ function parseDuration(str) {
     if (hours) total += parseInt(hours[1]) * 3600;
     if (mins) total += parseInt(mins[1]) * 60;
     if (secs) total += parseInt(secs[1]);
+    
+    // Fallback for just days like "25d" without other parts which above regex might miss if strict
+    if (total === 0 && str.match(/^\d+d$/)) {
+        return parseInt(str) * 86400;
+    }
     
     return total;
 }
