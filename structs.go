@@ -236,29 +236,12 @@ type ReplicaSetDetailPageData struct {
 
 // SimpleDeploymentInfo is for the namespace detail list.
 type SimpleDeploymentInfo struct {
+	Cluster  string
 	Name     string
 	Ready    string
 	Images   []string
 	Strategy string
 	Age      string
-}
-
-// NamespaceDetailView holds all resources for one namespace on one cluster
-type NamespaceDetailView struct {
-	TotalPods        int
-	TotalDeployments int
-	TotalReplicaSets int
-	Pods             []PodInfo
-	Deployments      []SimpleDeploymentInfo
-	ReplicaSets      []ReplicaSetInfo
-}
-
-// NamespaceDetailPageData is the main data object for the detail page
-type NamespaceDetailPageData struct {
-	PageBase
-	NamespaceName string
-	ClusterNames  []string
-	Details       map[string]NamespaceDetailView
 }
 
 // ContainerInfo holds data for a single container in a pod
@@ -819,4 +802,80 @@ type RolloutHistoryInfo struct {
 	ChangeCause string
 	Age         string
 	Images      []string
+}
+
+// --- Namespace Detail Extensions ---
+
+// NamespaceGlobalStats holds aggregated data across all clusters
+type NamespaceGlobalStats struct {
+    TotalPods           int
+    PodStatus           map[string]int // Running: 5, Pending: 1
+    
+    TotalDeployments    int
+    DeploymentReady     int
+    DeploymentHealth  WorkloadStat
+    
+    TotalDaemonSets     int
+    DaemonSetReady      int
+    
+    TotalStatefulSets   int
+    StatefulSetReady    int
+    TotalReplicaSets  int
+    
+    TotalServices       int
+    TotalIngresses      int
+    TotalConfigMaps     int
+    TotalSecrets        int
+    
+    EventsWarning       int
+    EventsNormal        int
+}
+
+// NamespaceDetailView now holds ALL resources for a specific cluster
+type NamespaceDetailView struct {
+    ClusterName      string
+    
+    // Counts
+    PodCount         int
+    DeploymentCount  int
+    ReplicaSetCount  int
+    DaemonSetCount   int
+    StatefulSetCount int
+    ServiceCount     int
+    IngressCount     int
+    ConfigMapCount   int
+    SecretCount      int
+    
+    // Data Lists
+    Pods             []PodInfo
+    Deployments      []SimpleDeploymentInfo
+    ReplicaSets      []ReplicaSetInfo
+    DaemonSets       []DaemonSetInfo
+    StatefulSets     []StatefulSetInfo
+    Services         []ServiceInfo
+    Ingresses        []IngressInfo
+    ConfigMaps       []ConfigMapInfo
+    Secrets          []SecretInfo
+    Events           []EventInfo
+}
+
+// NamespaceDetailPageData is the main data object for the detail page
+type NamespaceDetailPageData struct {
+	PageBase
+	NamespaceName string
+	ClusterNames  []string
+	
+	// Aggregated Data (Replaces the need for iterating the map in the view)
+	AllPods          []PodInfo
+	AllDeployments   []SimpleDeploymentInfo
+	AllReplicaSets   []ReplicaSetInfo
+	AllDaemonSets    []DaemonSetInfo
+	AllStatefulSets  []StatefulSetInfo
+	AllServices      []ServiceInfo
+	AllIngresses     []IngressInfo
+	AllConfigMaps    []ConfigMapInfo
+	AllSecrets       []SecretInfo
+	AllEvents        []EventInfo
+
+	GlobalStats   NamespaceGlobalStats
 }

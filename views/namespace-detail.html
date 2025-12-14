@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ .Title }} - K8s Universal Inspector</title>
     <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
 </head>
 <body>
 
@@ -13,177 +14,246 @@
     <main class="main-content">
         <h1>{{ .NamespaceName }}</h1>
         <div class="page-subtitle">
-            Namespace details, found in {{ len .ClusterNames }} cluster(s).
+            Aggregated view across <strong>{{ len .ClusterNames }}</strong> clusters
         </div>
 
         {{ if .ErrorLogs }}
         <div class="errors">
             <h2>Errors</h2>
-            <ul>
-                {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
-            </ul>
+            <ul>{{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}</ul>
         </div>
         {{ end }}
-        
-        <div class="tabs-container">
-            {{ if .ClusterNames }}
-                {{ range $index, $cluster := .ClusterNames }}
-                    <button class="tab-btn {{ if eq $index 0 }}active{{ end }}" 
-                            onclick="openTab('{{ $cluster }}', this)">
-                        {{ $cluster }}
-                    </button>
-                {{ end }}
-            {{ else }}
-                <div class="no-data" style="padding: 1rem 0;">No matching namespace found in selected clusters.</div>
-            {{ end }}
-        </div>
 
-        {{ range $index, $cluster := .ClusterNames }}
-            {{ $detail := index $.Details $cluster }}
+        <div class="stats-container three-col">
             
-            <div id="tab-{{ $cluster }}" class="deployment-content {{ if eq $index 0 }}active{{ end }}">
-                
-                <div class="stats-container three-col" style="margin-bottom: 1.5rem;">
-                    <div class="stat-box green">
-                        <h3>Deployments</h3>
-                        <div class="total">{{ $detail.TotalDeployments }}</div>
+            <div class="stat-widget">
+                <h3>Workloads</h3>
+                <div style="padding: 1.5rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div>
+                        <div style="font-size: 0.8rem; color: #9ca3af;">Deployments</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #e5e7eb;">{{ .GlobalStats.TotalDeployments }}</div>
                     </div>
-                    <div class="stat-box purple">
-                        <h3>Pods</h3>
-                        <div class="total">{{ $detail.TotalPods }}</div>
+                    <div>
+                        <div style="font-size: 0.8rem; color: #9ca3af;">Pods</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #e5e7eb;">{{ .GlobalStats.TotalPods }}</div>
                     </div>
-                    <div class="stat-box">
-                        <h3>ReplicaSets</h3>
-                        <div class="total">{{ $detail.TotalReplicaSets }}</div>
+                    <div>
+                        <div style="font-size: 0.8rem; color: #9ca3af;">DaemonSets</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #e5e7eb;">{{ .GlobalStats.TotalDaemonSets }}</div>
                     </div>
-                </div>
-
-                <div class="container" style="margin-bottom: 1.5rem;">
-                    <h2>Deployments</h2>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Ready</th>
-                                <th>Images</th>
-                                <th>Strategy</th>
-                                <th>Age</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {{ range $detail.Deployments }}
-                            <tr>
-                                <td>
-                                    <a href="{{ MakeURL $.QueryString "/deployment/detail" "name" .Name }}" class="deployment-link">
-                                        {{ .Name }}
-                                    </a>
-                                </td>
-                                <td>{{ .Ready }}</td>
-                                <td class="col-tags">
-                                    {{ range .Images }} <span class="image-tag">{{ . }}</span> {{ end }}
-                                </td>
-                                <td><span class="strategy-tag">{{ .Strategy }}</span></td>
-                                <td>{{ .Age }}</td>
-                            </tr>
-                            {{ else }}
-                            <tr><td colspan="5" class="no-data">No deployments found.</td></tr>
-                            {{ end }}
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="container" style="margin-bottom: 1.5rem;">
-                    <h2>Pods</h2>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Ready</th>
-                                <th>Status</th>
-                                <th>Reason</th>
-                                <th>Restarts</th>
-                                <th>Pod IP</th>
-                                <th>Node</th>
-                                <th>Age</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {{ range $detail.Pods }}
-                            <tr>
-                                <td>
-                                    <a href="{{ MakeURL $.QueryString "/pod/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">
-                                        {{ .Name }}
-                                    </a>
-                                </td>
-                                <td>{{ .Ready }}</td>
-                                <td><span class="status status-{{ .Status | ToLower }}">{{ .Status }}</span></td>
-                                <td class="reason-col">{{ .Reason }}</td>
-                                <td>{{ .Restarts }}</td>
-                                <td>{{ .PodIP }}</td>
-                                <td>{{ .Node }}</td>
-                                <td>{{ .Age }}</td>
-                            </tr>
-                            {{ else }}
-                            <tr><td colspan="8" class="no-data">No pods found.</td></tr>
-                            {{ end }}
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="container">
-                    <h2>ReplicaSets</h2>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Replicas (R/D/C)</th>
-                                <th>Owned By</th>
-                                <th>Age</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {{ range $detail.ReplicaSets }}
-                            <tr>
-                                <td>
-                                    <a href="/search?q={{ .Name | urlquery }}" class="deployment-link">
-                                        {{ .Name }}
-                                    </a>
-                                </td>
-                                <td>{{ .Ready }}</td>
-                                <td>{{ .Owner }}</td>
-                                <td>{{ .Age }}</td>
-                            </tr>
-                            {{ else }}
-                            <tr><td colspan="4" class="no-data">No replicasets found.</td></tr>
-                            {{ end }}
-                        </tbody>
-                    </table>
+                    <div>
+                        <div style="font-size: 0.8rem; color: #9ca3af;">StatefulSets</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #e5e7eb;">{{ .GlobalStats.TotalStatefulSets }}</div>
+                    </div>
                 </div>
             </div>
+
+            <div class="stat-widget">
+                <h3>Pod Health</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        {{ range $status, $count := .GlobalStats.PodStatus }}
+                            <div class="bar-segment status-{{ $status | ToLower }}" 
+                                 style="width: {{ printf "%.2f" (fdiv $count $.GlobalStats.TotalPods | mulf 100.0) }}%;"
+                                 title="{{ $status }}: {{ $count }}"></div>
+                        {{ end }}
+                    </div>
+                    <div class="chart-legend">
+                        {{ range $status, $count := .GlobalStats.PodStatus }}
+                        <div class="legend-item">
+                            <span class="legend-color status-{{ $status | ToLower }}"></span>
+                            {{ $status }} ({{ $count }})
+                        </div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+
+            <div class="stat-widget">
+                <h3>Network & Config</h3>
+                <div style="padding: 1.5rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div>
+                        <div style="font-size: 0.8rem; color: #9ca3af;">Services</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #22d3ee;">{{ .GlobalStats.TotalServices }}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.8rem; color: #9ca3af;">Ingresses</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #f59e0b;">{{ .GlobalStats.TotalIngresses }}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.8rem; color: #9ca3af;">ConfigMaps</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #e5e7eb;">{{ .GlobalStats.TotalConfigMaps }}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.8rem; color: #9ca3af;">Secrets</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #e5e7eb;">{{ .GlobalStats.TotalSecrets }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="search-container" style="margin-top: 2rem;">
+            <input type="text" id="searchInput" onkeyup="filterTable('searchInput', 'workloadTable')" placeholder="Filter resources...">
+        </div>
+
+        {{ if or .AllDeployments .AllDaemonSets .AllStatefulSets }}
+        <div class="container">
+            <h2>Workloads</h2>
+            <table id="workloadTable">
+                <thead>
+                    <tr>
+                        <th class="sortable-header" data-sort-type="string">Cluster</th>
+                        <th class="sortable-header" data-sort-type="string">Kind</th>
+                        <th class="sortable-header" data-sort-type="string">Name</th>
+                        <th>Ready</th>
+                        <th>Age</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ range .AllDeployments }}
+                    <tr>
+                        <td class="cluster-name">{{ .Cluster }}</td>
+                        <td><span class="strategy-tag">Deploy</span></td>
+                        <td><a href="{{ MakeURL $.QueryString "/deployment/detail" "name" .Name }}" class="deployment-link">{{ .Name }}</a></td>
+                        <td>{{ .Ready }}</td>
+                        <td>{{ .Age }}</td>
+                    </tr>
+                    {{ end }}
+                    {{ range .AllDaemonSets }}
+                    <tr>
+                        <td class="cluster-name">{{ .Cluster }}</td>
+                        <td><span class="strategy-tag" style="color: #f59e0b; background: rgba(245, 158, 11, 0.1);">DS</span></td>
+                        <td><a href="{{ MakeURL $.QueryString "/daemonset/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
+                        <td>{{ .Ready }}</td>
+                        <td>{{ .Age }}</td>
+                    </tr>
+                    {{ end }}
+                    {{ range .AllStatefulSets }}
+                    <tr>
+                        <td class="cluster-name">{{ .Cluster }}</td>
+                        <td><span class="strategy-tag" style="color: #3b82f6; background: rgba(59, 130, 246, 0.1);">STS</span></td>
+                        <td><a href="{{ MakeURL $.QueryString "/statefulset/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
+                        <td>{{ .Ready }}</td>
+                        <td>{{ .Age }}</td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+        </div>
         {{ end }}
+
+        {{ if .AllPods }}
+        <div class="container">
+            <h2>Pods ({{ len .AllPods }})</h2>
+            <table id="podTable">
+                <thead>
+                    <tr>
+                        <th class="sortable-header" data-sort-type="string">Cluster</th>
+                        <th class="sortable-header" data-sort-type="string">Name</th>
+                        <th>Ready</th>
+                        <th>Status</th>
+                        <th>Restarts</th>
+                        <th>Node</th>
+                        <th>IP</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ range .AllPods }}
+                    <tr>
+                        <td class="cluster-name">{{ .Cluster }}</td>
+                        <td><a href="{{ MakeURL $.QueryString "/pod/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
+                        <td>{{ .Ready }}</td>
+                        <td><span class="status status-{{ .Status | ToLower }}">{{ .Status }}</span></td>
+                        <td>{{ .Restarts }}</td>
+                        <td><a href="{{ MakeURL $.QueryString "/node/detail" "name" .Node "cluster_name" .Cluster }}" class="deployment-link">{{ .Node }}</a></td>
+                        <td>{{ .PodIP }}</td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+        </div>
+        {{ end }}
+
+        {{ if or .AllServices .AllIngresses }}
+        <div class="container">
+            <h2>Network</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Cluster</th>
+                        <th>Kind</th>
+                        <th>Name</th>
+                        <th>Info</th>
+                        <th>Age</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ range .AllServices }}
+                    <tr>
+                        <td class="cluster-name">{{ .Cluster }}</td>
+                        <td><span class="port-tag">SVC</span></td>
+                        <td><a href="{{ MakeURL $.QueryString "/service/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
+                        <td>{{ .Type }} | {{ .ClusterIP }}</td>
+                        <td>{{ .Age }}</td>
+                    </tr>
+                    {{ end }}
+                    {{ range .AllIngresses }}
+                    <tr>
+                        <td class="cluster-name">{{ .Cluster }}</td>
+                        <td><span class="port-tag" style="color:#ec4899; background: rgba(236, 72, 153, 0.1);">ING</span></td>
+                        <td><a href="{{ MakeURL $.QueryString "/ingress/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
+                        <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">{{ .Hosts }}</td>
+                        <td>{{ .Age }}</td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+        </div>
+        {{ end }}
+
+        {{ if or .AllConfigMaps .AllSecrets }}
+        <div class="container">
+            <h2>Configuration</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Cluster</th>
+                        <th>Kind</th>
+                        <th>Name</th>
+                        <th>Details</th>
+                        <th>Age</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ range .AllConfigMaps }}
+                    <tr>
+                        <td class="cluster-name">{{ .Cluster }}</td>
+                        <td><span class="image-tag">CM</span></td>
+                        <td><a href="{{ MakeURL $.QueryString "/configmap/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
+                        <td>{{ .DataKeys }} keys</td>
+                        <td>{{ .Age }}</td>
+                    </tr>
+                    {{ end }}
+                    {{ range .AllSecrets }}
+                    <tr>
+                        <td class="cluster-name">{{ .Cluster }}</td>
+                        <td><span class="image-tag" style="color:#ef4444; background:rgba(239, 68, 68, 0.1);">SEC</span></td>
+                        <td><a href="{{ MakeURL $.QueryString "/secret/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
+                        <td>{{ .Type }}</td>
+                        <td>{{ .Age }}</td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+        </div>
+        {{ end }}
+
     </main>
 
+    <script src="/static/js/table_utils.js"></script>
     <script>
-        // Updated tab logic to match the new class names
-        function openTab(clusterName, btn) {
-            // Hide all tabs
-            document.querySelectorAll('.deployment-content').forEach(el => {
-                el.classList.remove('active');
-            });
-            // Deselect all buttons
-            document.querySelectorAll('.tab-btn').forEach(el => {
-                el.classList.remove('active');
-            });
-
-            // Show selected tab
-            const target = document.getElementById('tab-' + clusterName);
-            if (target) {
-                target.classList.add('active');
-            }
-
-            // Highlight button
-            btn.classList.add('active');
-        }
+        // Optional: Extend filterTable to search multiple tables if needed, 
+        // or just rely on the main Workloads one for now.
     </script>
 </body>
 </html>
