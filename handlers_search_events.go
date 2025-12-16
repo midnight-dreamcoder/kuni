@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,8 +30,6 @@ func handleSearch(pattern string) echo.HandlerFunc {
 			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 		
-		// If query exists, we pass it to the view so the input box is pre-filled,
-		// but we do NOT execute the search here. The frontend will trigger it.
 		data := SearchPageData{
 			PageBase: base,
 			Query:    c.QueryParam("q"),
@@ -40,11 +39,11 @@ func handleSearch(pattern string) echo.HandlerFunc {
 	}
 }
 
-// handleSearchAPI executes a search for a specific resource type and returns JSON
+// handleSearchAPI executes a search for specific resource types (comma separated)
 func handleSearchAPI(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		query := c.QueryParam("q")
-		resourceType := c.QueryParam("type")
+		resourceTypesParam := c.QueryParam("type")
 		
 		if query == "" {
 			return c.JSON(http.StatusOK, []SearchResult{})
@@ -55,58 +54,60 @@ func handleSearchAPI(pattern string) echo.HandlerFunc {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid Regex"})
 		}
 
-		// Prepare Clients (We do this per request to respect current file state)
+		// Optimization: Build clients ONCE for all requested types
 		filesToProcess, err := getFilesToProcess(c, pattern)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Config Error"})
 		}
-		clients, _ := createClients(filesToProcess) // We ignore client errors for the API to keep it simple
+		clients, _ := createClients(filesToProcess)
 
-		resultsChan := make(chan SearchResult, 100)
+		resultsChan := make(chan SearchResult, 500)
 		var wg sync.WaitGroup
 
-		wg.Add(1)
-		
-		// Dispatch to the correct helper based on type
-        // (These functions are now defined in helpers.go)
-		switch resourceType {
-		case "cluster":
-			go searchClusters(re, clients, resultsChan, &wg)
-		case "namespace":
-			go searchNamespaces(re, clients, resultsChan, &wg)
-		case "deployment":
-			go searchDeployments(re, clients, resultsChan, &wg)
-		case "pod":
-			go searchPods(re, clients, resultsChan, &wg)
-		case "replicaset":
-			go searchReplicaSets(re, clients, resultsChan, &wg)
-		case "daemonset":
-			go searchDaemonSets(re, clients, resultsChan, &wg)
-		case "statefulset":
-			go searchStatefulSets(re, clients, resultsChan, &wg)
-		case "configmap":
-			go searchConfigMaps(re, clients, resultsChan, &wg)
-		case "node":
-			go searchNodes(re, clients, resultsChan, &wg)
-		case "pv":
-			go searchPersistentVolumes(re, clients, resultsChan, &wg)
-		case "pvc":
-			go searchPVCs(re, clients, resultsChan, &wg)
-		case "service":
-			go searchServices(re, clients, resultsChan, &wg)
-		case "ingress":
-			go searchIngresses(re, clients, resultsChan, &wg)
-		case "secret":
-			// Security check for secrets
-			if CurrentConfig.IsAdmin {
-				go searchSecrets(re, clients, resultsChan, &wg)
-			} else {
+		// Split the comma-separated types
+		types := strings.Split(resourceTypesParam, ",")
+
+		for _, resourceType := range types {
+			wg.Add(1)
+			// Dispatch based on type string
+			switch strings.TrimSpace(resourceType) {
+			case "cluster":
+				go searchClusters(re, clients, resultsChan, &wg)
+			case "namespace":
+				go searchNamespaces(re, clients, resultsChan, &wg)
+			case "deployment":
+				go searchDeployments(re, clients, resultsChan, &wg)
+			case "pod":
+				go searchPods(re, clients, resultsChan, &wg)
+			case "replicaset":
+				go searchReplicaSets(re, clients, resultsChan, &wg)
+			case "daemonset":
+				go searchDaemonSets(re, clients, resultsChan, &wg)
+			case "statefulset":
+				go searchStatefulSets(re, clients, resultsChan, &wg)
+			case "configmap":
+				go searchConfigMaps(re, clients, resultsChan, &wg)
+			case "node":
+				go searchNodes(re, clients, resultsChan, &wg)
+			case "pv":
+				go searchPersistentVolumes(re, clients, resultsChan, &wg)
+			case "pvc":
+				go searchPVCs(re, clients, resultsChan, &wg)
+			case "service":
+				go searchServices(re, clients, resultsChan, &wg)
+			case "ingress":
+				go searchIngresses(re, clients, resultsChan, &wg)
+			case "secret":
+				if CurrentConfig.IsAdmin {
+					go searchSecrets(re, clients, resultsChan, &wg)
+				} else {
+					wg.Done()
+				}
+			case "serviceaccount":
+				go searchServiceAccounts(re, clients, resultsChan, &wg)
+			default:
 				wg.Done()
 			}
-		case "serviceaccount":
-			go searchServiceAccounts(re, clients, resultsChan, &wg)
-		default:
-			wg.Done() // Invalid type, just return empty
 		}
 
 		// Closer routine
@@ -294,7 +295,6 @@ func handleGetEvents(pattern string) echo.HandlerFunc {
 					}
 				}
 				
-				// getHeatLevel is defined in helpers.go
 				row.Cells = append(row.Cells, HeatmapCell{
 					Count:          totalCount,
 					Level:          getHeatLevel(totalCount),

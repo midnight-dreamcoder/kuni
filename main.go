@@ -11,6 +11,8 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"k8s.io/client-go/util/homedir"
+
+	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 )
 
 // TemplateRenderer is a custom html/template renderer for Echo
@@ -116,6 +118,7 @@ func main() {
 
 	e.GET("/workload", handleGetWorkloadOverview(pattern))
 	e.GET("/clusters", handleGetClusters(pattern))
+	e.GET("/api/cluster/status", handleGetClusterStatusAPI(pattern))
 	e.GET("/cluster/detail", handleGetClusterDetail(pattern))
 	e.POST("/cluster/upload", handleUploadConfig(kubeDir))
 	e.GET("/cluster/discover-eks", handleDiscoverEKS(kubeDir, "us-east-2"))

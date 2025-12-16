@@ -87,18 +87,24 @@
                 loader.style.display = 'block';
                 resultCountSpan.textContent = '(0)';
                 
-                // Keep track of active requests
-                const resourceTypes = [
-                    "cluster", "namespace", "deployment", "pod", "replicaset", 
-                    "daemonset", "statefulset", "configmap", "node", "pv", 
-                    "pvc", "service", "ingress", "secret", "serviceaccount"
+                // Group requests to prevent browser/server exhaustion
+                const resourceGroups = [
+                    // Group 1: Core Identifiers (Fastest)
+                    "cluster,namespace,node",
+                    // Group 2: Workloads (Heaviest)
+                    "deployment,pod,replicaset,daemonset,statefulset",
+                    // Group 3: Network
+                    "service,ingress",
+                    // Group 4: Config & Storage
+                    "configmap,secret,serviceaccount,pv,pvc"
                 ];
                 
-                let activeRequests = resourceTypes.length;
+                let activeRequests = resourceGroups.length;
                 let totalResults = 0;
 
-                resourceTypes.forEach(type => {
-                    const url = `/api/search?q=${encodeURIComponent(query)}&type=${type}{{ .QueryString }}`; // Append current cluster filters if any
+                resourceGroups.forEach(group => {
+                    // Send comma-separated list to backend
+                    const url = `/api/search?q=${encodeURIComponent(query)}&type=${group}{{ .QueryString }}`;
                     
                     fetch(url)
                         .then(response => {
@@ -113,13 +119,15 @@
                             }
                         })
                         .catch(err => {
-                            console.error(`Error fetching ${type}:`, err);
+                            console.error(`Error fetching group ${group}:`, err);
                         })
                         .finally(() => {
                             activeRequests--;
-                            statusText.textContent = `Searching... (${resourceTypes.length - activeRequests}/${resourceTypes.length} sources scanned)`;
-                            
-                            if (activeRequests === 0) {
+                            // Update status text
+                            if (activeRequests > 0) {
+                                const percent = Math.round(((4 - activeRequests) / 4) * 100);
+                                statusText.textContent = `Searching... ${percent}%`;
+                            } else {
                                 finishSearch(totalResults);
                             }
                         });

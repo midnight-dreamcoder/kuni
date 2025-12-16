@@ -33,7 +33,8 @@ func handleDiscoverGKE(kubeDir string) echo.HandlerFunc {
 		ctx := context.Background()
 		// Create the Client
 		// Note: This relies on "Application Default Credentials" (ADC).
-		// Ensure you have run 'gcloud auth application-default login' on your machine.
+		// Ensure you have run 'gcloud auth application-default login' on your machine
+		// or set GOOGLE_APPLICATION_CREDENTIALS env var.
 		client, err := container.NewClusterManagerClient(ctx)
 		if err != nil {
 			return c.Redirect(302, fmt.Sprintf("/clusters?error=gcp_client_failed: %v", err))
@@ -72,15 +73,16 @@ func handleDiscoverGKE(kubeDir string) echo.HandlerFunc {
 				CertificateAuthorityData: caData,
 			}
 
-			// Auth Info (Exec Plugin)
-			// We use the standard 'gke-gcloud-auth-plugin' which comes with gcloud sdk
-			// This is cleaner than embedding tokens.
+			// Auth Info (CHANGED: Use Native AuthProvider instead of Exec)
+			// This tells client-go to use the internal GCP plugin.
+			// It will automatically reuse the Application Default Credentials (ADC)
+			// that the app is already using for discovery.
 			kubeConfig.AuthInfos[clusterName] = &clientcmdapi.AuthInfo{
-				Exec: &clientcmdapi.ExecConfig{
-					APIVersion: "client.authentication.k8s.io/v1beta1",
-					Command:    "gke-gcloud-auth-plugin",
-					InstallHint: "Install gke-gcloud-auth-plugin for use with kubectl by running 'gcloud components install gke-gcloud-auth-plugin'",
-					ProvideClusterInfo: true, 
+				AuthProvider: &clientcmdapi.AuthProviderConfig{
+					Name: "gcp",
+					Config: map[string]string{
+						"scopes": "https://www.googleapis.com/auth/cloud-platform",
+					},
 				},
 			}
 
