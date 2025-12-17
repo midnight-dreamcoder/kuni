@@ -69,6 +69,15 @@
                 </a></li>
             </ul>
         </div>
+
+        <div class="nav-section">
+            <div class="nav-category" onclick="toggleNav(this)">GitOps</div>
+            <ul class="nav-group">
+                <li><a href="/flux{{ .QueryString }}" {{ if eq .ActivePage "flux" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">↻</span>Flux CD
+                </a></li>
+            </ul>
+        </div>
         
         <div class="nav-section">
             <div class="nav-category" onclick="toggleNav(this)">Network</div>
@@ -114,12 +123,14 @@
                 {{ end }}
             </ul>
         </div>
+
         <div class="nav-section">
             <div class="nav-category" onclick="toggleNav(this)">Extensions</div>
             <ul class="nav-group">
-            <li><a href="/crds{{ .QueryString }}" {{ if eq .ActivePage "crds" }}class="active"{{ end }}>
-                <span class="sidebar-icon">🧩</span>Custom Resources
-            </a></li>
+                <li><a href="/crds{{ .QueryString }}" {{ if eq .ActivePage "crds" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">🧩</span>Custom Resources
+                </a></li>
+            </ul>
         </div>
     </div>
 

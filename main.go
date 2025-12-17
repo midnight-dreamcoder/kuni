@@ -6,12 +6,14 @@ import (
 	"io"
 	"log"
 	"net/url"
+	"os" // Added to check Env Vars
 	"path/filepath"
 	"strings"
 
 	"github.com/labstack/echo/v4"
 	"k8s.io/client-go/util/homedir"
 
+	// Side-effect import for GCP Native Auth (CRITICAL for GKE integration)
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 )
 
@@ -31,11 +33,14 @@ func main() {
 	
 	// --- 2. Initialize Echo ---
 	e := echo.New()
-	e.Debug = true
+	// Disable Debug mode in production for performance
+	e.Debug = true 
 
 	// --- 2.1 Serve static files ---
-	e.File("/style.css", "views/style.css")
-	e.Static("/static", "views/static")
+	// Serve the entire static folder (CSS, JS, Images)
+	e.Static("/static", "views/static") 
+	// Keep this for backward compatibility if you haven't moved style.css yet
+	e.File("/style.css", "views/style.css") 
 
 	// --- 2.2 Initialize the custom template renderer ---
 	t := &TemplateRenderer{
@@ -100,11 +105,26 @@ func main() {
 	e.Renderer = t
 
 	// --- 3. Define the Route Handlers ---
-	home := homedir.HomeDir()
-	if home == "" {
-		log.Fatal("Error: HOME environment variable not set.")
+	
+	// FIX: Allow Environment Variable override for Docker
+	var kubeDir string
+	if envDir := os.Getenv("KUBECONFIG_DIR"); envDir != "" {
+		kubeDir = envDir
+		log.Printf("📂 Using Kubeconfig dir from Env: %s", kubeDir)
+	} else {
+		home := homedir.HomeDir()
+		if home == "" {
+			log.Fatal("Error: HOME environment variable not set.")
+		}
+		kubeDir = filepath.Join(home, ".kube")
 	}
-	kubeDir := filepath.Join(home, ".kube")
+
+	// Ensure the directory exists (helpful for empty Docker mounts)
+	if _, err := os.Stat(kubeDir); os.IsNotExist(err) {
+		log.Printf("⚠️ Warning: Kubeconfig directory does not exist: %s", kubeDir)
+		os.MkdirAll(kubeDir, 0755)
+	}
+
 	pattern := filepath.Join(kubeDir, "config-ops*")
 	log.Printf("🔍 Server configured to search for files matching: %s\n", pattern)
 
@@ -114,7 +134,7 @@ func main() {
 	
 	// SEARCH HANDLERS
 	e.GET("/search", handleSearch(pattern))
-	e.GET("/api/search", handleSearchAPI(pattern)) 
+	e.GET("/api/search", handleSearchAPI(pattern))
 
 	e.GET("/workload", handleGetWorkloadOverview(pattern))
 	e.GET("/clusters", handleGetClusters(pattern))
@@ -152,6 +172,7 @@ func main() {
 	e.GET("/crds", handleGetCRDs(pattern))
 	e.GET("/secrets", handleGetSecrets(pattern))
 	e.GET("/secret/detail", handleGetSecretDetail(pattern))
+	e.GET("/flux", handleGetFlux(pattern))
 
 	// --- 4. Start the Server using Config ---
 	port := ":8080"
