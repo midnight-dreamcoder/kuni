@@ -879,3 +879,23 @@ type NamespaceDetailPageData struct {
 
 	GlobalStats   NamespaceGlobalStats
 }
+
+// FluxResource holds normalized data for the UI
+type FluxResource struct {
+	Cluster     string
+	Namespace   string
+	Name        string
+	Type        string // GitRepo, Kustomization, HelmRelease
+	Status      string // Ready, Reconciling, Failed
+	Message     string
+	Revision    string
+	LastUpdated string
+	Age         string
+}
+
+// FluxPageData is the main data object for the flux.html template
+type FluxPageData struct {
+	PageBase
+	Resources []FluxResource
+	SelectedClusters map[string]bool
+}
