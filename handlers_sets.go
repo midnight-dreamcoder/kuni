@@ -15,20 +15,12 @@ import (
 // handleGetReplicaSets lists all ReplicaSets from selected clusters
 func handleGetReplicaSets(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "ReplicaSets", "replicasets")
+
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding configs")
-		}
-		
-		base := PageBase{
-			Title:                "ReplicaSets",
-			ActivePage:           "replicasets",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
 		clients, clientErrors := createClients(configsToProcess)
@@ -112,20 +104,12 @@ func handleGetReplicaSets(pattern string) echo.HandlerFunc {
 // handleGetReplicaSetDetail fetches details for a single ReplicaSet
 func handleGetReplicaSetDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
 		cluster := c.QueryParam("cluster_name")
 		ns := c.QueryParam("namespace")
 		name := c.QueryParam("name")
 
-		base := PageBase{
-			Title:                name,
-			ActivePage:           "replicasets",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, name, "replicasets")
 
 		clientset, err := findClient(pattern, cluster)
 		if err != nil {
@@ -184,22 +168,14 @@ func handleGetReplicaSetDetail(pattern string) echo.HandlerFunc {
 // handleGetDaemonSets lists all DaemonSets
 func handleGetDaemonSets(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "DaemonSets", "daemonsets")
+
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding configs")
 		}
 		
-		base := PageBase{
-			Title:                "DaemonSets",
-			ActivePage:           "daemonsets",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
-
 		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
@@ -256,20 +232,12 @@ func handleGetDaemonSets(pattern string) echo.HandlerFunc {
 // handleGetDaemonSetDetail fetches details for a single DaemonSet
 func handleGetDaemonSetDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
 		cluster := c.QueryParam("cluster_name")
 		ns := c.QueryParam("namespace")
 		name := c.QueryParam("name")
 
-		base := PageBase{
-			Title:                name,
-			ActivePage:           "daemonsets",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, name, "daemonsets")
 
 		clientset, err := findClient(pattern, cluster)
 		if err != nil {
@@ -317,20 +285,12 @@ func handleGetDaemonSetDetail(pattern string) echo.HandlerFunc {
 // handleGetStatefulSets lists all StatefulSets
 func handleGetStatefulSets(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "StatefulSets", "statefulsets")
+
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding configs")
-		}
-		
-		base := PageBase{
-			Title:                "StatefulSets",
-			ActivePage:           "statefulsets",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
 		clients, clientErrors := createClients(configsToProcess)
@@ -393,20 +353,12 @@ func handleGetStatefulSets(pattern string) echo.HandlerFunc {
 // handleGetStatefulSetDetail fetches details for a single StatefulSet
 func handleGetStatefulSetDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
 		cluster := c.QueryParam("cluster_name")
 		ns := c.QueryParam("namespace")
 		name := c.QueryParam("name")
 
-		base := PageBase{
-			Title:                name,
-			ActivePage:           "statefulsets",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, name, "statefulsets")
 
 		clientset, err := findClient(pattern, cluster)
 		if err != nil {

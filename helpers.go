@@ -97,8 +97,8 @@ func getRequestFilter(c echo.Context) (int, string, string) {
 }
 
 // getConfigsToProcess filters config files based on a list of NAMES (from query 'c')
-// UPDATED: Now uses ClusterConfig from config_manager.go
 func getConfigsToProcess(c echo.Context, pattern string) ([]ClusterConfig, error) {
+	// For Lists, we use LoadAllConfigs (Files + DB)
 	allConfigs, err := LoadAllConfigs(pattern)
 	if err != nil {
 		return nil, err
@@ -116,7 +116,8 @@ func getConfigsToProcess(c echo.Context, pattern string) ([]ClusterConfig, error
 
 	var filtered []ClusterConfig
 	for _, cfg := range allConfigs {
-		if allowedSet[cfg.Name] {
+		// FIXED: Match against 'Name' (Filename/ID), not 'ContextName'
+		if allowedSet[cfg.Name] { 
 			filtered = append(filtered, cfg)
 		}
 	}
@@ -124,7 +125,6 @@ func getConfigsToProcess(c echo.Context, pattern string) ([]ClusterConfig, error
 }
 
 // createClients loops through a list of ClusterConfigs and returns clients
-// UPDATED: Accepts []ClusterConfig instead of []string
 func createClients(configs []ClusterConfig) ([]KubeClient, []string) {
 	var clients []KubeClient
 	var errors []string
@@ -191,64 +191,49 @@ func getNodeStatus(node v1.Node) (string, string) {
 }
 
 // findClient finds a single clientset based on a context name
-// UPDATED: Uses LoadAllConfigs
+// Uses GetClusterConfig (Single/Specific Lookup)
 func findClient(pattern string, clusterContextName string) (*kubernetes.Clientset, error) {
-	allConfigs, err := LoadAllConfigs(pattern)
-	if err != nil {
-		return nil, fmt.Errorf("error finding configs: %v", err)
-	}
-	
-	for _, cfg := range allConfigs {
-		if cfg.ContextName == clusterContextName {
-			restConfig, err := cfg.ToRestConfig()
-			if err != nil {
-				return nil, fmt.Errorf("error building config for %s: %v", clusterContextName, err)
-			}
-			return kubernetes.NewForConfig(restConfig)
-		}
-	}
-	return nil, fmt.Errorf("could not find a valid config for context: %s", clusterContextName)
-}
-
-// findMetricsClient finds a single metrics clientset based on a context name
-// UPDATED: Uses LoadAllConfigs
-func findMetricsClient(pattern string, clusterContextName string) (*metrics.Clientset, error) {
-	allConfigs, err := LoadAllConfigs(pattern)
-	if err != nil {
-		return nil, fmt.Errorf("error finding configs: %v", err)
-	}
-
-	for _, cfg := range allConfigs {
-		if cfg.ContextName == clusterContextName {
-			restConfig, err := cfg.ToRestConfig()
-			if err != nil {
-				return nil, fmt.Errorf("error building config for %s: %v", clusterContextName, err)
-			}
-			return metrics.NewForConfig(restConfig)
-		}
-	}
-	return nil, fmt.Errorf("could not find a valid config for context: %s", clusterContextName)
-}
-
-// findConfigWithTimeout finds a config and applies a timeout (Used for status API)
-// UPDATED: Uses LoadAllConfigs
-func findConfigWithTimeout(pattern string, clusterContextName string, timeout time.Duration) (*rest.Config, error) {
-	allConfigs, err := LoadAllConfigs(pattern)
+	cfg, err := GetClusterConfig(pattern, clusterContextName)
 	if err != nil {
 		return nil, err
 	}
 	
-	for _, cfg := range allConfigs {
-		if cfg.ContextName == clusterContextName {
-			restConfig, err := cfg.ToRestConfig()
-			if err != nil {
-				return nil, err
-			}
-			restConfig.Timeout = timeout
-			return restConfig, nil
-		}
+	restConfig, err := cfg.ToRestConfig()
+	if err != nil {
+		return nil, fmt.Errorf("error building config for %s: %v", clusterContextName, err)
 	}
-	return nil, fmt.Errorf("config not found")
+	return kubernetes.NewForConfig(restConfig)
+}
+
+// findMetricsClient finds a single metrics clientset based on a context name
+// Uses GetClusterConfig (Single/Specific Lookup)
+func findMetricsClient(pattern string, clusterContextName string) (*metrics.Clientset, error) {
+	cfg, err := GetClusterConfig(pattern, clusterContextName)
+	if err != nil {
+		return nil, err
+	}
+
+	restConfig, err := cfg.ToRestConfig()
+	if err != nil {
+		return nil, fmt.Errorf("error building config for %s: %v", clusterContextName, err)
+	}
+	return metrics.NewForConfig(restConfig)
+}
+
+// findConfigWithTimeout finds a config and applies a timeout (Used for status API)
+// Uses GetClusterConfig (Single/Specific Lookup)
+func findConfigWithTimeout(pattern string, clusterContextName string, timeout time.Duration) (*rest.Config, error) {
+	cfg, err := GetClusterConfig(pattern, clusterContextName)
+	if err != nil {
+		return nil, err
+	}
+	
+	restConfig, err := cfg.ToRestConfig()
+	if err != nil {
+		return nil, err
+	}
+	restConfig.Timeout = timeout
+	return restConfig, nil
 }
 
 // --- Search Helper Functions ---

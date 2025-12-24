@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/labstack/echo/v4"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,7 +14,8 @@ import (
 // handleGetWorkloadOverview provides a high-level dashboard of all resources.
 func handleGetWorkloadOverview(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "Workload Overview", "workload")
 		
 		// FIXED: configsToProcess
 		configsToProcess, err := getConfigsToProcess(c, pattern)
@@ -23,17 +23,6 @@ func handleGetWorkloadOverview(pattern string) echo.HandlerFunc {
 			return c.String(500, "Error finding kubeconfig files")
 		}
 		
-		base := PageBase{
-			Title:                "Workload Overview",
-			ActivePage:           "workload",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
-
 		// FIXED: configsToProcess
 		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)

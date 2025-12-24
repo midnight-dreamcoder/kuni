@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/labstack/echo/v4"
 	"golang.org/x/crypto/bcrypt"
@@ -19,21 +18,17 @@ type UserPageData struct {
 // handleGetUsers lists all users
 func handleGetUsers() echo.HandlerFunc {
 	return func(c echo.Context) error {
-		// Security: Only Admins can view this page
-		// We need to check the session/context for the current user's role
-		// For now, we assume if you are accessing this, you passed AuthMiddleware.
-		// TODO: Real Role Check
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "User Management", "users")
 		
+		// SECURITY CHECK: Explicitly enforce admin access
+		if !base.IsAdmin {
+			return c.Redirect(http.StatusFound, "/overview?error=unauthorized")
+		}
+
 		var users []User
 		if DB != nil {
 			DB.Order("id asc").Find(&users)
-		}
-
-		base := PageBase{
-			Title:         "User Management",
-			ActivePage:    "users",
-			LastRefreshed: time.Now().Format(time.RFC1123),
-			IsAdmin:       true, // Only admins should reach here
 		}
 
 		return c.Render(200, "users.html", UserPageData{
@@ -46,6 +41,12 @@ func handleGetUsers() echo.HandlerFunc {
 // handleAddUser creates a new user
 func handleAddUser() echo.HandlerFunc {
 	return func(c echo.Context) error {
+		// Ensure only admins can create users (double check)
+		isAdmin, _ := c.Get("isAdmin").(bool)
+		if !isAdmin {
+			return c.String(http.StatusForbidden, "Unauthorized")
+		}
+
 		username := c.FormValue("username")
 		password := c.FormValue("password")
 		role := c.FormValue("role")
@@ -68,8 +69,7 @@ func handleAddUser() echo.HandlerFunc {
 
 		if err := DB.Create(&newUser).Error; err != nil {
 			log.Printf("Failed to create user: %v", err)
-			// Return to page with error (simplified)
-			return c.Redirect(http.StatusFound, "/users")
+			return c.Redirect(http.StatusFound, "/users?error=creation_failed")
 		}
 
 		log.Printf("✅ Created new user: %s (%s)", username, role)
@@ -80,6 +80,12 @@ func handleAddUser() echo.HandlerFunc {
 // handleDeleteUser removes a user
 func handleDeleteUser() echo.HandlerFunc {
 	return func(c echo.Context) error {
+		// Ensure only admins can delete users
+		isAdmin, _ := c.Get("isAdmin").(bool)
+		if !isAdmin {
+			return c.String(http.StatusForbidden, "Unauthorized")
+		}
+
 		id := c.FormValue("id")
 		
 		if DB == nil { return c.String(500, "Database not enabled") }
@@ -88,7 +94,7 @@ func handleDeleteUser() echo.HandlerFunc {
 		var user User
 		if err := DB.First(&user, id).Error; err == nil {
 			if user.Username == "admin" {
-				return c.Redirect(http.StatusFound, "/users")
+				return c.Redirect(http.StatusFound, "/users?error=cannot_delete_admin")
 			}
 		}
 

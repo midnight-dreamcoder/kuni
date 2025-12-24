@@ -14,22 +14,13 @@ import (
 
 func handleGetDeployments(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
-		
+		// UPDATED: Use GetBaseData for consistent Auth/View context
+		base := GetBaseData(c, "Deployments", "deployments")
+
 		// FIXED: configsToProcess
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding configs")
-		}
-
-		base := PageBase{
-			Title:                "Deployments",
-			ActivePage:           "deployments",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
 		// FIXED: pass configsToProcess
@@ -144,37 +135,20 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 	}
 }
 
-// handleGetDeploymentDetail (Unchanged, uses findClient which was updated in helpers.go)
+// handleGetDeploymentDetail (Updated to use GetBaseData)
 func handleGetDeploymentDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		// ... logic remains identical ...
-		// I'm including the full handler here to ensure valid file compilation
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
 		name := c.QueryParam("name")
 
-		base := PageBase{
-			Title:                name,
-			ActivePage:           "deployments",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
-
-		// uses findClient (updated in helpers.go)
-		//clientset, err := findClient(pattern, c.QueryParam("cluster_name"))
-		// ... Actually, this detail handler might need "configsToProcess" if it scans all clusters.
-		// BUT: Deployment Detail usually queries *all* clusters to show the breakdown.
-		// Let's check how the original handler worked.
-		// Original handler used `getFilesToProcess` to scan ALL clusters for this deployment name.
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, name, "deployments")
 
 		// FIXED: configsToProcess
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding configs")
 		}
-		
+
 		clients, _ := createClients(configsToProcess)
 
 		data := DeploymentDetailPageData{
@@ -191,11 +165,13 @@ func handleGetDeploymentDetail(pattern string) echo.HandlerFunc {
 		fetchDetail := func(client KubeClient) (bool, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			
+
 			// List all deployments in all namespaces for this client
 			// Optimization: We could use FieldSelector if name is exact match
 			list, err := client.Clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
-			if err != nil { return false, err }
+			if err != nil {
+				return false, err
+			}
 
 			found := false
 			for _, d := range list.Items {
@@ -207,29 +183,31 @@ func handleGetDeploymentDetail(pattern string) echo.HandlerFunc {
 						data.Pods[client.ContextName] = make(map[string][]PodInfo)
 						data.NamespaceNames[client.ContextName] = []string{}
 					}
-					
+
 					var images []string
-					for _, c := range d.Spec.Template.Spec.Containers { images = append(images, c.Image) }
+					for _, c := range d.Spec.Template.Spec.Containers {
+						images = append(images, c.Image)
+					}
 
 					// Fetch Pods for this deployment (Label Selector)
 					selectorStr := metav1.FormatLabelSelector(d.Spec.Selector)
 					podList, _ := client.Clientset.CoreV1().Pods(d.Namespace).List(ctx, metav1.ListOptions{LabelSelector: selectorStr})
-					
+
 					var pods []PodInfo
 					for _, p := range podList.Items {
 						reason := getPodReason(p)
 						pods = append(pods, PodInfo{
-							Name: p.Name, Status: string(p.Status.Phase), 
+							Name: p.Name, Status: string(p.Status.Phase),
 							Ready: fmt.Sprintf("%d/%d", countReadyContainers(p.Status.ContainerStatuses), len(p.Spec.Containers)),
 							PodIP: p.Status.PodIP, Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp), Reason: reason,
 						})
 					}
 
 					data.Overviews[client.ContextName][d.Namespace] = DeploymentDetailView{
-						Status: fmt.Sprintf("%d/%d", d.Status.ReadyReplicas, *d.Spec.Replicas),
+						Status:   fmt.Sprintf("%d/%d", d.Status.ReadyReplicas, *d.Spec.Replicas),
 						Strategy: string(d.Spec.Strategy.Type),
 						Selector: selectorStr,
-						Images: images,
+						Images:   images,
 					}
 					data.Pods[client.ContextName][d.Namespace] = pods
 					data.NamespaceNames[client.ContextName] = append(data.NamespaceNames[client.ContextName], d.Namespace)
@@ -269,4 +247,3 @@ func countReadyContainers(statuses []v1.ContainerStatus) int {
 	}
 	return c
 }
-

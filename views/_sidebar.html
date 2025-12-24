@@ -94,18 +94,34 @@
         <div class="nav-section">
             <div class="nav-category" onclick="toggleNav(this)">Config & Storage</div>
             <ul class="nav-group">
-                <li><a href="/configmaps{{ .QueryString }}" {{ if eq .ActivePage "configmaps" }}class="active"{{ end }}>
-                    <span class="sidebar-icon">📜</span>ConfigMaps
-                </a></li>
-                <li><a href="/secrets{{ .QueryString }}" {{ if eq .ActivePage "secrets" }}class="active"{{ end }}>
-                    <span class="sidebar-icon">🔒</span>Secrets
-                </a></li>
-                <li><a href="/serviceaccounts{{ .QueryString }}" {{ if eq .ActivePage "serviceaccounts" }}class="active"{{ end }}>
-                    <span class="sidebar-icon">🔑</span>Service Accounts
-                </a></li>
-                <li><a href="/pvcs{{ .QueryString }}" {{ if eq .ActivePage "pvcs" }}class="active"{{ end }}>
-                    <span class="sidebar-icon">🗂️</span>PVCs
-                </a></li>
+                <li>
+                    <a href="/configmaps{{ .QueryString }}" 
+                       {{ if eq .ActivePage "configmaps" }}class="active"{{ end }}
+                       {{ if not .IsAdmin }}style="opacity: 0.5; cursor: not-allowed;" title="Admin Access Required"{{ end }}>
+                        <span class="sidebar-icon">📜</span>ConfigMaps
+                    </a>
+                </li>
+                <li>
+                    <a href="/secrets{{ .QueryString }}" 
+                       {{ if eq .ActivePage "secrets" }}class="active"{{ end }}
+                       {{ if not .IsAdmin }}style="opacity: 0.5; cursor: not-allowed;" title="Admin Access Required"{{ end }}>
+                        <span class="sidebar-icon">🔒</span>Secrets
+                    </a>
+                </li>
+                <li>
+                    <a href="/serviceaccounts{{ .QueryString }}" 
+                       {{ if eq .ActivePage "serviceaccounts" }}class="active"{{ end }}
+                       {{ if not .IsAdmin }}style="opacity: 0.5; cursor: not-allowed;" title="Admin Access Required"{{ end }}>
+                        <span class="sidebar-icon">🔑</span>Service Accounts
+                    </a>
+                </li>
+                <li>
+                    <a href="/pvcs{{ .QueryString }}" 
+                       {{ if eq .ActivePage "pvcs" }}class="active"{{ end }}
+                       {{ if not .IsAdmin }}style="opacity: 0.5; cursor: not-allowed;" title="Admin Access Required"{{ end }}>
+                        <span class="sidebar-icon">🗂️</span>PVCs
+                    </a>
+                </li>
             </ul>
         </div>
 
@@ -155,7 +171,7 @@
     </div>
 
     <div class="sidebar-footer">
-        v0.0.1-guest-mode
+        v0.0.1-dev-4
     </div>
 
     <script>

@@ -15,26 +15,15 @@ import (
 // handleGetConfigMaps lists all configmaps from all clusters
 func handleGetConfigMaps(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "All ConfigMaps", "configmaps")
 		
-		// FIXED: Use getConfigsToProcess (Hybrid Loader)
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding configs")
 		}
-		
-		base := PageBase{
-			Title:                "All ConfigMaps",
-			ActivePage:           "configmaps",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
 
-		// --- SECURITY CHECK ---
+		// --- SECURITY CHECK (Session based) ---
 		if !base.IsAdmin {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
 		}
@@ -123,7 +112,6 @@ func handleGetConfigMaps(pattern string) echo.HandlerFunc {
 // handleGetConfigMapDetail fetches a single configmap and its events
 func handleGetConfigMapDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
 		clusterContextName := c.QueryParam("cluster_name")
 		namespace := c.QueryParam("namespace")
 		cmName := c.QueryParam("name")
@@ -131,16 +119,8 @@ func handleGetConfigMapDetail(pattern string) echo.HandlerFunc {
 			return c.String(400, "Missing required query parameters: cluster_name, namespace, name")
 		}
 
-		base := PageBase{
-			Title:                cmName,
-			ActivePage:           "configmaps",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, cmName, "configmaps")
 
 		if !base.IsAdmin {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
@@ -188,30 +168,18 @@ func handleGetConfigMapDetail(pattern string) echo.HandlerFunc {
 // handleGetPVCs lists all PVCs
 func handleGetPVCs(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "PersistentVolumeClaims", "pvcs")
 		
-		// FIXED: Use getConfigsToProcess
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding configs")
-		}
-
-		base := PageBase{
-			Title:                "PersistentVolumeClaims",
-			ActivePage:           "pvcs",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
 		if !base.IsAdmin {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
 		}
 
-		// FIXED: Pass []ClusterConfig
 		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 
@@ -316,7 +284,6 @@ func handleGetPVCs(pattern string) echo.HandlerFunc {
 // handleGetPVCDetail fetches a single PVC, finding which pods mount it
 func handleGetPVCDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
 		clusterContextName := c.QueryParam("cluster_name")
 		namespace := c.QueryParam("namespace")
 		pvcName := c.QueryParam("name")
@@ -324,16 +291,8 @@ func handleGetPVCDetail(pattern string) echo.HandlerFunc {
 			return c.String(400, "Missing required query parameters")
 		}
 
-		base := PageBase{
-			Title:                pvcName,
-			ActivePage:           "pvcs",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, pvcName, "pvcs")
 
 		if !base.IsAdmin {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
@@ -452,30 +411,18 @@ func handleGetPVCDetail(pattern string) echo.HandlerFunc {
 // handleGetServiceAccounts lists all service accounts from all clusters
 func handleGetServiceAccounts(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "Service Accounts", "serviceaccounts")
 		
-		// FIXED: Use getConfigsToProcess
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding configs")
-		}
-
-		base := PageBase{
-			Title:                "Service Accounts",
-			ActivePage:           "serviceaccounts",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
 		if !base.IsAdmin {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
 		}
 
-		// FIXED: Pass []ClusterConfig
 		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
@@ -553,7 +500,6 @@ func handleGetServiceAccounts(pattern string) echo.HandlerFunc {
 // handleGetServiceAccountDetail fetches a SA and finds pods using it
 func handleGetServiceAccountDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
 		clusterContextName := c.QueryParam("cluster_name")
 		namespace := c.QueryParam("namespace")
 		saName := c.QueryParam("name")
@@ -561,16 +507,8 @@ func handleGetServiceAccountDetail(pattern string) echo.HandlerFunc {
 			return c.String(400, "Missing required query parameters")
 		}
 
-		base := PageBase{
-			Title:                saName,
-			ActivePage:           "serviceaccounts",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, saName, "serviceaccounts")
 
 		if !base.IsAdmin {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
@@ -668,28 +606,16 @@ func handleGetServiceAccountDetail(pattern string) echo.HandlerFunc {
 // handleGetSecrets lists all secrets
 func handleGetSecrets(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "Secrets", "secrets")
 		
-		// FIXED: Use getConfigsToProcess
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil { return c.String(500, "Error finding configs") }
 		
-		base := PageBase{
-			Title:                "Secrets",
-			ActivePage:           "secrets",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
-
 		if !base.IsAdmin {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
 		}
 
-		// FIXED: Pass []ClusterConfig
 		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
@@ -756,21 +682,13 @@ func handleGetSecrets(pattern string) echo.HandlerFunc {
 // handleGetSecretDetail fetches a single secret
 func handleGetSecretDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
 		clusterContextName := c.QueryParam("cluster_name")
 		namespace := c.QueryParam("namespace")
 		name := c.QueryParam("name")
 		if clusterContextName == "" || namespace == "" || name == "" { return c.String(400, "Missing params") }
 		
-		base := PageBase{
-			Title:                name,
-			ActivePage:           "secrets",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, name, "secrets")
 
 		if !base.IsAdmin {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")

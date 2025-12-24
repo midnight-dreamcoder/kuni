@@ -39,8 +39,8 @@ func handleGetClusters(pattern string) echo.HandlerFunc {
 		for _, s := range selectedQuery {
 			selectedClustersMap[s] = true
 		}
-		// Populate SelectedClusters in PageBase manually since helper doesn't do deep map logic
-		base.SelectedClusters = selectedClustersMap
+		
+		// REMOVED: base.SelectedClusters = selectedClustersMap (Invalid field on PageBase)
 
 		var clusters []ClusterInfo
 		for _, cfg := range configs {
@@ -139,7 +139,7 @@ func handleGetClusterStatusAPI(pattern string) echo.HandlerFunc {
 // handleUploadConfig (Protected by middleware in main.go)
 func handleUploadConfig(kubeDir string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		// Double check admin status (redundant if middleware is used, but safe)
+		// Double check admin status
 		isAdmin, _ := c.Get("isAdmin").(bool)
 		if !isAdmin {
 			return c.Redirect(302, "/clusters?error=upload_not_allowed_in_guest_mode")
@@ -559,7 +559,7 @@ func handleGetNodeDetail(pattern string) echo.HandlerFunc {
 		defer cancel()
 		
 		var wg sync.WaitGroup
-		wg.Add(2) // Wait for Node + Events (simplified compared to previous inline)
+		wg.Add(2) 
 
 		// 1. Fetch Node Info & Pods
 		go func() {

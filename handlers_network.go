@@ -14,21 +14,12 @@ import (
 
 func handleGetServices(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "Services", "services")
+
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
-		}
-
-		base := PageBase{
-			Title:                "Services",
-			ActivePage:           "services",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
 		clients, clientErrors := createClients(configsToProcess)
@@ -110,21 +101,12 @@ func handleGetServices(pattern string) echo.HandlerFunc {
 
 func handleGetServiceDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
 		clusterContextName := c.QueryParam("cluster_name")
 		namespace := c.QueryParam("namespace")
 		serviceName := c.QueryParam("name")
 
-		base := PageBase{
-			Title:                serviceName,
-			ActivePage:           "services",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, serviceName, "services")
 
 		clientset, err := findClient(pattern, clusterContextName)
 		if err != nil {
@@ -233,21 +215,12 @@ func handleGetServiceDetail(pattern string) echo.HandlerFunc {
 
 func handleGetIngresses(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "Ingresses", "ingresses")
+
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
-		}
-
-		base := PageBase{
-			Title:                "Ingresses",
-			ActivePage:           "ingresses",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
 		clients, clientErrors := createClients(configsToProcess)
@@ -332,21 +305,12 @@ func handleGetIngresses(pattern string) echo.HandlerFunc {
 
 func handleGetIngressDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
 		clusterContextName := c.QueryParam("cluster_name")
 		namespace := c.QueryParam("namespace")
 		name := c.QueryParam("name")
 
-		base := PageBase{
-			Title:                name,
-			ActivePage:           "ingresses",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, name, "ingresses")
 
 		clientset, err := findClient(pattern, clusterContextName)
 		if err != nil {

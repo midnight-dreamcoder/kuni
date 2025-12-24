@@ -18,23 +18,13 @@ import (
 // handleGetPods lists all pods from all clusters
 func handleGetPods(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "All Pods", "pods")
 		
 		// FIXED: Use getConfigsToProcess (Hybrid Loader)
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding configs")
-		}
-		
-		base := PageBase{
-			Title:                "All Pods",
-			ActivePage:           "pods",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
 		// FIXED: Pass []ClusterConfig
@@ -181,23 +171,16 @@ func handleGetPods(pattern string) echo.HandlerFunc {
 // handleGetPodDetail (Uses findClient, which is already fixed in helpers.go)
 func handleGetPodDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
 		clusterContextName := c.QueryParam("cluster_name")
 		namespace := c.QueryParam("namespace")
 		podName := c.QueryParam("name")
+		
 		if clusterContextName == "" || namespace == "" || podName == "" {
 			return c.String(400, "Missing required query parameters: cluster_name, namespace, name")
 		}
 
-		base := PageBase{
-			Title:                podName,
-			ActivePage:           "pods",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, podName, "pods")
 
 		clientset, err := findClient(pattern, clusterContextName)
 		if err != nil {
@@ -315,7 +298,9 @@ func handleGetPodDetail(pattern string) echo.HandlerFunc {
 // handleGetPodLogs streams logs for a specific container
 func handleGetPodLogs(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if !CurrentConfig.IsAdmin {
+		// UPDATED: Check Session Admin Status instead of Global Config
+		isAdmin, _ := c.Get("isAdmin").(bool)
+		if !isAdmin {
 			return c.String(http.StatusForbidden, "⛔ Access Denied: Pod logs contain sensitive information.")
 		}
 

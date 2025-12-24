@@ -11,24 +11,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// handleGetNamespaces lists all namespaces (Simple list view) - UNCHANGED
+// handleGetNamespaces lists all namespaces (Simple list view)
 func handleGetNamespaces(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "Namespaces", "namespaces")
+
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
-		}
-
-		base := PageBase{
-			Title:                "Namespaces",
-			ActivePage:           "namespaces",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
 		clients, clientErrors := createClients(configsToProcess)
@@ -101,22 +92,13 @@ func handleGetNamespaces(pattern string) echo.HandlerFunc {
 // handleGetNamespaceDetail fetches comprehensive data for a namespace across clusters
 func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
 		nsName := c.QueryParam("name")
 		if nsName == "" {
 			return c.String(400, "Missing 'name' parameter")
 		}
 
-		base := PageBase{
-			Title:                "NS: " + nsName,
-			ActivePage:           "namespaces",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "NS: "+nsName, "namespaces")
 
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
@@ -169,7 +151,7 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 						desired := int32(1)
 						if item.Spec.Replicas != nil { desired = *item.Spec.Replicas }
 						view.Deployments = append(view.Deployments, SimpleDeploymentInfo{
-							Cluster: client.ContextName, // <--- ADDED
+							Cluster: client.ContextName,
 							Name: item.Name, Age: formatAge(item.CreationTimestamp),
 							Ready: fmt.Sprintf("%d/%d", item.Status.ReadyReplicas, desired),
 							Strategy: string(item.Spec.Strategy.Type), Images: images,
@@ -280,7 +262,8 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 
 			go func() {
 				defer wg.Done()
-				if CurrentConfig.IsAdmin {
+				// SECURITY FIX: Check session admin status, not global config
+				if base.IsAdmin {
 					list, _ := client.Clientset.CoreV1().Secrets(nsName).List(ctx, metav1.ListOptions{})
 					if list != nil {
 						view.SecretCount = len(list.Items)
@@ -300,7 +283,7 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 			if evList != nil {
 				for _, e := range evList.Items {
 					view.Events = append(view.Events, EventInfo{
-						Cluster: client.ContextName, // Add cluster to event
+						Cluster: client.ContextName, 
 						Type: e.Type, Reason: e.Reason, Message: e.Message, Count: int(e.Count),
 						LastSeen: formatAge(e.LastTimestamp), Object: e.InvolvedObject.Kind + "/" + e.InvolvedObject.Name,
 					})
@@ -365,7 +348,7 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 			data.AllEvents = append(data.AllEvents, res.Events...)
 		}
 		
-		// Sort the lists for display (Cluster, then Name)
+		// Sort the lists for display
 		sort.Slice(data.AllPods, func(i, j int) bool { 
 			if data.AllPods[i].Cluster != data.AllPods[j].Cluster { return data.AllPods[i].Cluster < data.AllPods[j].Cluster }
 			return data.AllPods[i].Name < data.AllPods[j].Name 
@@ -374,7 +357,6 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 			if data.AllDeployments[i].Cluster != data.AllDeployments[j].Cluster { return data.AllDeployments[i].Cluster < data.AllDeployments[j].Cluster }
 			return data.AllDeployments[i].Name < data.AllDeployments[j].Name 
 		})
-		// (Optional: add more sorts for other types if needed)
 
 		sort.Strings(clusterNames)
 		data.ClusterNames = clusterNames

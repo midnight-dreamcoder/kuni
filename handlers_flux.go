@@ -17,7 +17,8 @@ import (
 
 func handleGetFlux(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "Flux CD Overview", "flux")
 
 		// 1. Get Configs (DB + Disk) using the new Helper
 		configs, err := getConfigsToProcess(c, pattern)
@@ -26,20 +27,11 @@ func handleGetFlux(pattern string) echo.HandlerFunc {
 		}
 
 		// 2. Map selected clusters for the UI checkboxes
+		// (GetBaseData handles base.SelectedClusters, but we might want a simple map for logic here if needed,
+		// though base.SelectedClusters is usually enough for the View)
 		selectedMap := make(map[string]bool)
 		for _, cfg := range configs {
 			selectedMap[cfg.Name] = true
-		}
-
-		base := PageBase{
-			Title:                "Flux CD Overview",
-			ActivePage:           "flux",
-			SelectedClusterCount: selectedCount,
-			// Removed SelectedClusters from here
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
 		gvrGit := schema.GroupVersionResource{Group: "source.toolkit.fluxcd.io", Version: "v1", Resource: "gitrepositories"}
@@ -151,7 +143,7 @@ func handleGetFlux(pattern string) echo.HandlerFunc {
 		data := FluxPageData{
 			PageBase:         base,
 			Resources:        allResources,
-			SelectedClusters: selectedMap, // Correctly placed here
+			SelectedClusters: selectedMap,
 		}
 
 		return c.Render(200, "flux.html", data)

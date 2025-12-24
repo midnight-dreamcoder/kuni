@@ -17,8 +17,10 @@ import (
 // handleDiscoverGKE connects to Google Cloud, finds clusters in a project, and saves configs
 func handleDiscoverGKE(kubeDir string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		// [SECURITY] Block this action if not in Admin mode
-		if !CurrentConfig.IsAdmin {
+		// [SECURITY FIX] Check Session Context (not global config)
+		isAdmin, _ := c.Get("isAdmin").(bool)
+		
+		if !isAdmin {
 			log.Println("⛔ Blocked GKE discovery attempt (Guest Mode)")
 			return c.Redirect(302, "/clusters?error=action_not_allowed_in_guest_mode")
 		}
@@ -73,10 +75,8 @@ func handleDiscoverGKE(kubeDir string) echo.HandlerFunc {
 				CertificateAuthorityData: caData,
 			}
 
-			// Auth Info (CHANGED: Use Native AuthProvider instead of Exec)
+			// Auth Info
 			// This tells client-go to use the internal GCP plugin.
-			// It will automatically reuse the Application Default Credentials (ADC)
-			// that the app is already using for discovery.
 			kubeConfig.AuthInfos[clusterName] = &clientcmdapi.AuthInfo{
 				AuthProvider: &clientcmdapi.AuthProviderConfig{
 					Name: "gcp",

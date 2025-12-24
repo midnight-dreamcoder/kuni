@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"path/filepath"
 
 	"k8s.io/client-go/rest"
@@ -24,17 +25,15 @@ func (c *ClusterConfig) ToRestConfig() (*rest.Config, error) {
 	return clientcmd.RESTConfigFromKubeConfig(c.Content)
 }
 
-// LoadAllConfigs fetches configs from both Disk and DB
+// LoadAllConfigs fetches configs from both Disk and DB (For Lists)
 func LoadAllConfigs(pattern string) ([]ClusterConfig, error) {
 	var configs []ClusterConfig
 
 	// 1. Load from Disk
 	files, _ := filepath.Glob(pattern)
 	for _, f := range files {
-		// Attempt to parse context name without loading full config
 		ctxName := filepath.Base(f)
 		
-		// Load basic info to get the real context name if possible
 		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 		loadingRules.ExplicitPath = f
 		overrides := &clientcmd.ConfigOverrides{}
@@ -53,7 +52,7 @@ func LoadAllConfigs(pattern string) ([]ClusterConfig, error) {
 		})
 	}
 
-	// 2. Load from Database (if enabled)
+	// 2. Load from Database (One single request for all available configs)
 	if DB != nil {
 		var dbConfigs []KubeConfig
 		// Check table existence to be safe during startup
@@ -61,8 +60,8 @@ func LoadAllConfigs(pattern string) ([]ClusterConfig, error) {
 			if err := DB.Find(&dbConfigs).Error; err == nil {
 				for _, c := range dbConfigs {
 					configs = append(configs, ClusterConfig{
-						Name:        c.Name, // DB Configs use their name as ID
-						ContextName: c.Name, // Usually matches context for DB entries
+						Name:        c.Name, 
+						ContextName: c.Name, 
 						IsFile:      false,
 						Content:     []byte(c.Content),
 					})
@@ -72,4 +71,38 @@ func LoadAllConfigs(pattern string) ([]ClusterConfig, error) {
 	}
 
 	return configs, nil
+}
+
+// GetClusterConfig finds a specific config by context name (For Status/Details)
+// Optimized to ONLY scan files as requested (Database check skipped)
+func GetClusterConfig(pattern, contextName string) (*ClusterConfig, error) {
+	// 1. Try Disk (Scan files)
+	files, _ := filepath.Glob(pattern)
+	for _, f := range files {
+		ctxName := filepath.Base(f)
+		
+		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+		loadingRules.ExplicitPath = f
+		overrides := &clientcmd.ConfigOverrides{}
+		kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
+		raw, err := kubeConfig.RawConfig()
+		
+		if err == nil && raw.CurrentContext != "" {
+			ctxName = raw.CurrentContext
+		}
+
+		if ctxName == contextName {
+			return &ClusterConfig{
+				Name:        filepath.Base(f),
+				ContextName: ctxName,
+				IsFile:      true,
+				Path:        f,
+			}, nil
+		}
+	}
+
+	// [Optimization] Database check skipped for single-cluster lookups 
+	// as per requirement "no need to check cluster status at database".
+
+	return nil, fmt.Errorf("cluster config not found for context: %s", contextName)
 }

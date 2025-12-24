@@ -18,8 +18,10 @@ import (
 // handleDiscoverEKS connects to AWS, finds clusters, and saves configs
 func handleDiscoverEKS(kubeDir string, region string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		// [SECURITY] Block this action if not in Admin mode
-		if !CurrentConfig.IsAdmin {
+		// [SECURITY FIX] Check Session Context (not global config)
+		isAdmin, _ := c.Get("isAdmin").(bool)
+		
+		if !isAdmin {
 			log.Println("⛔ Blocked EKS discovery attempt (Guest Mode)")
 			return c.Redirect(302, "/clusters?error=action_not_allowed_in_guest_mode")
 		}

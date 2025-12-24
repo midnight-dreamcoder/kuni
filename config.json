@@ -1,6 +1,6 @@
 {
   "app_title": "K8s Universal Inspector",
-  "is_admin": true,
+  "is_admin": false,
   "server_port": ":8080",
   "DatabasePath": "data/kuni.db"
 }

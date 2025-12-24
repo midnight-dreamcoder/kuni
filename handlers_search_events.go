@@ -17,18 +17,8 @@ import (
 // handleSearch renders the search page shell immediately
 func handleSearch(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
-		
-		base := PageBase{
-			Title:                "Search",
-			ActivePage:           "search",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			IsSearchPage:         true,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "Search", "search")
 		
 		data := SearchPageData{
 			PageBase: base,
@@ -44,6 +34,9 @@ func handleSearchAPI(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		query := c.QueryParam("q")
 		resourceTypesParam := c.QueryParam("type")
+
+		// SECURITY FIX: Check the SESSION, not the global config
+		isAdmin, _ := c.Get("isAdmin").(bool)
 		
 		if query == "" {
 			return c.JSON(http.StatusOK, []SearchResult{})
@@ -54,12 +47,11 @@ func handleSearchAPI(pattern string) echo.HandlerFunc {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid Regex"})
 		}
 
-		// FIXED: configsToProcess
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Config Error"})
 		}
-		// FIXED: configsToProcess
+		
 		clients, _ := createClients(configsToProcess)
 
 		resultsChan := make(chan SearchResult, 500)
@@ -97,7 +89,8 @@ func handleSearchAPI(pattern string) echo.HandlerFunc {
 			case "ingress":
 				go searchIngresses(re, clients, resultsChan, &wg)
 			case "secret":
-				if CurrentConfig.IsAdmin {
+				// SECURITY FIX: Use the session variable 'isAdmin'
+				if isAdmin {
 					go searchSecrets(re, clients, resultsChan, &wg)
 				} else {
 					wg.Done()
@@ -126,9 +119,9 @@ func handleSearchAPI(pattern string) echo.HandlerFunc {
 // handleGetEvents lists all events from the last hour
 func handleGetEvents(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "Cluster Events (Last Hour)", "events")
 		
-		// FIXED: configsToProcess
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
@@ -137,18 +130,6 @@ func handleGetEvents(pattern string) echo.HandlerFunc {
 		now := time.Now().UTC()
 		hourAgo := now.Add(-1 * time.Hour)
 
-		base := PageBase{
-			Title:                "Cluster Events (Last Hour)",
-			ActivePage:           "events",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        now.Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
-
-		// FIXED: configsToProcess
 		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 
@@ -297,7 +278,7 @@ func handleGetEvents(pattern string) echo.HandlerFunc {
 				
 				row.Cells = append(row.Cells, HeatmapCell{
 					Count:          totalCount,
-					Level:          getHeatLevel(totalCount), // Added helper below
+					Level:          getHeatLevel(totalCount),
 					TopReason:      topReason,
 					TopReasonCount: topReasonCount,
 				})
@@ -320,7 +301,6 @@ func handleGetEvents(pattern string) echo.HandlerFunc {
 	}
 }
 
-// Added missing helper
 func getHeatLevel(count int) string {
 	if count == 0 {
 		return "level-0"

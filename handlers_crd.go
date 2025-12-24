@@ -16,21 +16,12 @@ import (
 // handleGetCRDs lists all Custom Resource Definitions across clusters
 func handleGetCRDs(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "Custom Resources", "crds")
+		
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
-		}
-
-		base := PageBase{
-			Title:                "Custom Resources",
-			ActivePage:           "crds",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
 		clients, clientErrors := createClients(configsToProcess)
