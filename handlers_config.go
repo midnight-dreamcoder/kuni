@@ -16,9 +16,11 @@ import (
 func handleGetConfigMaps(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		selectedCount, queryString, cacheBuster := getRequestFilter(c)
-		filesToProcess, err := getFilesToProcess(c, pattern)
+		
+		// FIXED: Use getConfigsToProcess (Hybrid Loader)
+		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
-			return c.String(500, "Error finding kubeconfig files")
+			return c.String(500, "Error finding configs")
 		}
 		
 		base := PageBase{
@@ -37,10 +39,11 @@ func handleGetConfigMaps(pattern string) echo.HandlerFunc {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
 		}
 
-		clients, clientErrors := createClients(filesToProcess)
+		// FIXED: Pass []ClusterConfig to createClients
+		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
-		if len(filesToProcess) == 0 {
+		if len(configsToProcess) == 0 {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
 		}
 
@@ -186,9 +189,11 @@ func handleGetConfigMapDetail(pattern string) echo.HandlerFunc {
 func handleGetPVCs(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		selectedCount, queryString, cacheBuster := getRequestFilter(c)
-		filesToProcess, err := getFilesToProcess(c, pattern)
+		
+		// FIXED: Use getConfigsToProcess
+		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
-			return c.String(500, "Error finding kubeconfig files")
+			return c.String(500, "Error finding configs")
 		}
 
 		base := PageBase{
@@ -206,10 +211,11 @@ func handleGetPVCs(pattern string) echo.HandlerFunc {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
 		}
 
-		clients, clientErrors := createClients(filesToProcess)
+		// FIXED: Pass []ClusterConfig
+		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 
-		if len(filesToProcess) == 0 {
+		if len(configsToProcess) == 0 {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
 		}
 
@@ -447,9 +453,11 @@ func handleGetPVCDetail(pattern string) echo.HandlerFunc {
 func handleGetServiceAccounts(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		selectedCount, queryString, cacheBuster := getRequestFilter(c)
-		filesToProcess, err := getFilesToProcess(c, pattern)
+		
+		// FIXED: Use getConfigsToProcess
+		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
-			return c.String(500, "Error finding kubeconfig files")
+			return c.String(500, "Error finding configs")
 		}
 
 		base := PageBase{
@@ -467,10 +475,11 @@ func handleGetServiceAccounts(pattern string) echo.HandlerFunc {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
 		}
 
-		clients, clientErrors := createClients(filesToProcess)
+		// FIXED: Pass []ClusterConfig
+		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
-		if len(filesToProcess) == 0 {
+		if len(configsToProcess) == 0 {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
 		}
 
@@ -660,8 +669,10 @@ func handleGetServiceAccountDetail(pattern string) echo.HandlerFunc {
 func handleGetSecrets(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		selectedCount, queryString, cacheBuster := getRequestFilter(c)
-		filesToProcess, err := getFilesToProcess(c, pattern)
-		if err != nil { return c.String(500, "Error finding kubeconfig files") }
+		
+		// FIXED: Use getConfigsToProcess
+		configsToProcess, err := getConfigsToProcess(c, pattern)
+		if err != nil { return c.String(500, "Error finding configs") }
 		
 		base := PageBase{
 			Title:                "Secrets",
@@ -678,7 +689,8 @@ func handleGetSecrets(pattern string) echo.HandlerFunc {
 			return c.Redirect(302, "/overview?error=access_denied_admin_only")
 		}
 
-		clients, clientErrors := createClients(filesToProcess)
+		// FIXED: Pass []ClusterConfig
+		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
 		// --- 1. Fetch ---

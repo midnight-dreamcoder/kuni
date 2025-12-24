@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login - K8s Universal Inspector</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/style.css">
+    <style>
+        body {
+            background-color: var(--bg-body);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            font-family: var(--font-main);
+        }
+        .login-card {
+            background: var(--bg-card);
+            padding: 2.5rem;
+            border-radius: 12px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+            border: 1px solid var(--border);
+        }
+        .login-logo {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+        .login-title {
+            font-size: 1.5rem;
+            color: var(--text-inverse);
+            margin-bottom: 1.5rem;
+            font-weight: 700;
+        }
+        .form-group {
+            margin-bottom: 1.25rem;
+            text-align: left;
+        }
+        .form-label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+        .form-input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 1rem;
+            box-sizing: border-box;
+            background-color: var(--bg-input);
+            color: var(--text-main);
+            font-family: var(--font-mono);
+        }
+        .form-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 1px var(--primary);
+        }
+        .btn-login {
+            width: 100%;
+            background-color: var(--primary);
+            color: var(--text-dark);
+            padding: 0.75rem;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: filter 0.2s;
+            margin-top: 1rem;
+        }
+        .btn-login:hover {
+            filter: brightness(1.1);
+        }
+        .error-msg {
+            color: #fca5a5;
+            font-size: 0.875rem;
+            margin-top: 1.5rem;
+            background: rgba(239, 68, 68, 0.2);
+            padding: 0.75rem;
+            border-radius: 6px;
+            border: 1px solid rgba(239, 68, 68, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <div class="login-logo">☸️</div>
+        <h1 class="login-title">K8s Universal Inspector</h1>
+        
+        <form action="/login" method="POST">
+            <div class="form-group">
+                <label class="form-label">Username</label>
+                <input type="text" name="username" class="form-input" required autofocus>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Password</label>
+                <input type="password" name="password" class="form-input" required>
+            </div>
+            <button type="submit" class="btn-login">Sign In</button>
+        </form>
+
+        {{ if .Error }}
+            <div class="error-msg">{{ .Error }}</div>
+        {{ end }}
+    </div>
+</body>
+</html>

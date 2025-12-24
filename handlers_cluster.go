@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,34 +16,22 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sversion "k8s.io/apimachinery/pkg/version"
-	"k8s.io/client-go/kubernetes" // Re-added for NewForConfig
-	"k8s.io/client-go/rest"       // Added for rest.Config
-	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/kubernetes" 
 )
 
-// handleGetClusters renders the list immediately (Pending state)
+// handleGetClusters renders the list immediately
 func handleGetClusters(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
-		
-		base := PageBase{
-			Title:                "Cluster Status",
-			ActivePage:           "clusters",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
+		// Use new Helper for PageBase (Handles Auth & Filter)
+		base := GetBaseData(c, "Cluster Status", "clusters")
 
 		if errParam := c.QueryParam("error"); errParam != "" {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("❌ Error: %s", errParam))
 		}
 
-		matchedFiles, err := filepath.Glob(pattern)
+		configs, err := LoadAllConfigs(pattern)
 		if err != nil {
-			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Error finding kubeconfig files: %v", err))
+			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("Error loading configs: %v", err))
 		}
 
 		selectedQuery := c.QueryParams()["c"]
@@ -52,26 +39,14 @@ func handleGetClusters(pattern string) echo.HandlerFunc {
 		for _, s := range selectedQuery {
 			selectedClustersMap[s] = true
 		}
+		// Populate SelectedClusters in PageBase manually since helper doesn't do deep map logic
+		base.SelectedClusters = selectedClustersMap
 
 		var clusters []ClusterInfo
-
-		for _, configFile := range matchedFiles {
-			configName := filepath.Base(configFile)
-			contextName := configName
-
-			// Read raw config just to get the Context Name
-			loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-			loadingRules.ExplicitPath = configFile
-			overrides := &clientcmd.ConfigOverrides{}
-			kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
-			rawConfig, rawErr := kubeConfig.RawConfig()
-			if rawErr == nil && rawConfig.CurrentContext != "" {
-				contextName = rawConfig.CurrentContext
-			}
-
+		for _, cfg := range configs {
 			clusters = append(clusters, ClusterInfo{
-				Name:       contextName,
-				ConfigName: configName,
+				Name:       cfg.ContextName,
+				ConfigName: cfg.Name, 
 				Status:     "Pending", 
 				Latency:    "-",
 				Version:    "-",
@@ -79,7 +54,6 @@ func handleGetClusters(pattern string) echo.HandlerFunc {
 				NodeCount:  0,
 			})
 		}
-
 		sort.Slice(clusters, func(i, j int) bool { return clusters[i].Name < clusters[j].Name })
 
 		data := ClusterPageData{
@@ -91,7 +65,7 @@ func handleGetClusters(pattern string) echo.HandlerFunc {
 	}
 }
 
-// handleGetClusterStatusAPI checks a single cluster's connectivity (Async)
+// handleGetClusterStatusAPI checks a single cluster's connectivity
 func handleGetClusterStatusAPI(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		clusterName := c.QueryParam("name")
@@ -99,8 +73,6 @@ func handleGetClusterStatusAPI(pattern string) echo.HandlerFunc {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing name"})
 		}
 
-		// FIXED: Use local helper to enforce a strict 5s timeout on the transport layer
-		// Standard findClient() leaves timeout at default (30s+), which hangs ServerVersion()
 		config, err := findConfigWithTimeout(pattern, clusterName, 5*time.Second)
 		if err != nil {
 			return c.JSON(http.StatusOK, ClusterInfo{Status: "Offline", Latency: "Error", Provider: "Unknown"})
@@ -112,8 +84,6 @@ func handleGetClusterStatusAPI(pattern string) echo.HandlerFunc {
 		}
 
 		start := time.Now()
-		
-		// Note: ServerVersion() does NOT take a Context, it relies on config.Timeout (set above)
 		versionInfo, err := clientset.Discovery().ServerVersion()
 		latency := time.Since(start)
 		
@@ -140,7 +110,6 @@ func handleGetClusterStatusAPI(pattern string) echo.HandlerFunc {
 			info.Provider = "On-Prem"
 		}
 
-		// For Nodes, we CAN use context to double-ensure timeout
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
@@ -159,9 +128,7 @@ func handleGetClusterStatusAPI(pattern string) echo.HandlerFunc {
 			}
 		}
 		
-		// Safe extraction of Host
 		if config.Host != "" {
-			// Strip protocol for cleaner display if needed, or just use as is
 			info.ApiServer = strings.TrimPrefix(strings.TrimPrefix(config.Host, "https://"), "http://")
 		}
 
@@ -169,11 +136,12 @@ func handleGetClusterStatusAPI(pattern string) echo.HandlerFunc {
 	}
 }
 
-// handleUploadConfig saves a new kubeconfig file
+// handleUploadConfig (Protected by middleware in main.go)
 func handleUploadConfig(kubeDir string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if !CurrentConfig.IsAdmin {
-			log.Println("⛔ Blocked config upload attempt (Guest Mode)")
+		// Double check admin status (redundant if middleware is used, but safe)
+		isAdmin, _ := c.Get("isAdmin").(bool)
+		if !isAdmin {
 			return c.Redirect(302, "/clusters?error=upload_not_allowed_in_guest_mode")
 		}
 
@@ -208,22 +176,13 @@ func handleUploadConfig(kubeDir string) echo.HandlerFunc {
 // handleGetClusterDetail fetches all details for a single cluster
 func handleGetClusterDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
 		clusterContextName := c.QueryParam("cluster_name")
 		if clusterContextName == "" {
 			return c.String(400, "Missing required query parameter: cluster_name")
 		}
 
-		base := PageBase{
-			Title:                clusterContextName,
-			ActivePage:           "clusters",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
+		// Use new Helper
+		base := GetBaseData(c, clusterContextName, "clusters")
 
 		clientset, err := findClient(pattern, clusterContextName)
 		if err != nil {
@@ -238,7 +197,6 @@ func handleGetClusterDetail(pattern string) echo.HandlerFunc {
 			Events:     make([]EventInfo, 0),
 		}
 
-		// Timeout reduced to 10s for detail page too
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
@@ -252,10 +210,6 @@ func handleGetClusterDetail(pattern string) echo.HandlerFunc {
 		go func() {
 			defer wg.Done()
 			start := time.Now()
-			// This call might still block if not using the config timeout, but since 
-			// this is the Detail page, we assume the cluster is somewhat healthy.
-			// The surrounding context cancellation will eventually stop the waitgroup
-			// but individual calls inside client-go might linger.
 			versionInfo, err := clientset.Discovery().ServerVersion()
 			latency := time.Since(start)
 
@@ -363,14 +317,10 @@ func handleGetClusterDetail(pattern string) echo.HandlerFunc {
 			defer wg.Done()
 			metricsClient, metricsErr := findMetricsClient(pattern, clusterContextName)
 			if metricsErr != nil {
-				log.Printf("No metrics client: %v", metricsErr)
 				return
 			}
 			metricsList, err := metricsClient.MetricsV1beta1().NodeMetricses().List(ctx, metav1.ListOptions{})
 			if err != nil {
-				mutex.Lock()
-				data.ErrorLogs = append(data.ErrorLogs, fmt.Sprintf("Failed to list node metrics: %v", err))
-				mutex.Unlock()
 				return
 			}
 			mutex.Lock()
@@ -406,27 +356,18 @@ func handleGetClusterDetail(pattern string) echo.HandlerFunc {
 // handleGetClusterOverview provides a high-level dashboard
 func handleGetClusterOverview(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
-		filesToProcess, err := getFilesToProcess(c, pattern)
+		// Use Helper
+		base := GetBaseData(c, "Cluster Overview", "overview")
+		
+		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
-			return c.String(500, "Error finding kubeconfig files")
+			return c.String(500, "Error finding configs")
 		}
 
-		base := PageBase{
-			Title:                "Cluster Overview",
-			ActivePage:           "overview",
-			SelectedClusterCount: selectedCount,
-			QueryString:          queryString,
-			CacheBuster:          cacheBuster,
-			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
-			IsAdmin:              CurrentConfig.IsAdmin,
-		}
-
-		clients, clientErrors := createClients(filesToProcess)
+		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
-		if len(filesToProcess) == 0 {
+		if len(configsToProcess) == 0 {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
 		}
 
@@ -566,21 +507,16 @@ func handleGetClusterOverview(pattern string) echo.HandlerFunc {
 	}
 }
 
-// handleGetNodes lists all nodes from all clusters (Unchanged from previous turn)
+// handleGetNodes lists all nodes from all clusters
 func handleGetNodes(pattern string) echo.HandlerFunc {
-	// (Reusing previously fixed logic for brevity - keeping it complete in file upload context)
-	// For this specific response, I will include the full body below to ensure 100% copy-paste success.
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
-		filesToProcess, err := getFilesToProcess(c, pattern)
-		if err != nil { return c.String(500, "Error finding kubeconfig files") }
+		// Use Helper
+		base := GetBaseData(c, "All Nodes", "nodes")
 		
-		base := PageBase{
-			Title: "All Nodes", ActivePage: "nodes", SelectedClusterCount: selectedCount,
-			QueryString: queryString, CacheBuster: cacheBuster,
-			LastRefreshed: time.Now().Format(time.RFC1123), IsAdmin: CurrentConfig.IsAdmin,
-		}
-		clients, _ := createClients(filesToProcess)
+		configsToProcess, err := getConfigsToProcess(c, pattern)
+		if err != nil { return c.String(500, "Error finding configs") }
+		
+		clients, _ := createClients(configsToProcess)
 		
 		type nodeFetchResult struct { ClusterName string; Items []NodeInfo }
 		fetchNodes := func(client KubeClient) (nodeFetchResult, error) {
@@ -605,66 +541,118 @@ func handleGetNodes(pattern string) echo.HandlerFunc {
 	}
 }
 
-// handleGetNodeDetail fetches a single node and its pods/events (Unchanged from previous turn)
+// handleGetNodeDetail fetches a single node and its pods/events
 func handleGetNodeDetail(pattern string) echo.HandlerFunc {
-	// (Reusing previously fixed logic - including full body to prevent errors)
 	return func(c echo.Context) error {
-		selectedCount, queryString, cacheBuster := getRequestFilter(c)
 		clusterContextName := c.QueryParam("cluster_name")
 		nodeName := c.QueryParam("name")
 		
-		base := PageBase{
-			Title: nodeName, ActivePage: "nodes", SelectedClusterCount: selectedCount,
-			QueryString: queryString, CacheBuster: cacheBuster,
-			LastRefreshed: time.Now().Format(time.RFC1123), IsAdmin: CurrentConfig.IsAdmin,
-		}
+		// Use Helper
+		base := GetBaseData(c, nodeName, "nodes")
+
 		clientset, err := findClient(pattern, clusterContextName)
 		if err != nil { return c.Render(200, "node-detail.html", NodeDetailPageData{PageBase: base}) }
 		
 		data := NodeDetailPageData{PageBase: base, ClusterName: clusterContextName, NodeName: nodeName, Capacity: make(map[string]string), Allocatable: make(map[string]string)}
 		
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // Match reduced timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) 
 		defer cancel()
 		
 		var wg sync.WaitGroup
-		wg.Add(1)
+		wg.Add(2) // Wait for Node + Events (simplified compared to previous inline)
+
+		// 1. Fetch Node Info & Pods
 		go func() {
 			defer wg.Done()
 			node, err := clientset.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
 			if err == nil {
 				data.KubeletVersion = node.Status.NodeInfo.KubeletVersion
 				data.OS = node.Status.NodeInfo.OperatingSystem
+				data.ContainerRuntime = node.Status.NodeInfo.ContainerRuntimeVersion
+				data.ProviderID = node.Spec.ProviderID
 				data.Age = formatAge(node.CreationTimestamp)
-				// ... (abbreviated detail population for conciseness, assume standard struct filling) ...
+				
+				// Addresses
+				for _, addr := range node.Status.Addresses {
+					data.Addresses = append(data.Addresses, NodeAddressInfo{Type: string(addr.Type), Address: addr.Address})
+				}
+				
+				// Taints
+				for _, t := range node.Spec.Taints {
+					data.Taints = append(data.Taints, NodeTaintInfo{Key: t.Key, Value: t.Value, Effect: string(t.Effect)})
+				}
+				
+				// Labels & Annotations
+				data.Labels = node.Labels
+				data.Annotations = node.Annotations
+				
+				// Conditions
+				for _, c := range node.Status.Conditions {
+					data.Conditions = append(data.Conditions, PodConditionInfo{Type: string(c.Type), Status: string(c.Status), Reason: c.Reason, Message: c.Message, LastHeartbeat: formatAge(c.LastHeartbeatTime)})
+				}
+				
+				// Capacity / Allocatable
+				for k, v := range node.Status.Capacity { data.Capacity[string(k)] = v.String() }
+				for k, v := range node.Status.Allocatable { data.Allocatable[string(k)] = v.String() }
+				
+				// Resources
+				capCpu := node.Status.Capacity.Cpu(); capMem := node.Status.Capacity.Memory()
+				allocCpu := node.Status.Allocatable.Cpu(); allocMem := node.Status.Allocatable.Memory()
+				data.Resources.CapacityCpu = formatCpu(capCpu); data.Resources.CapacityMem = formatMemory(capMem)
+				data.Resources.AllocatableCpu = formatCpu(allocCpu); data.Resources.AllocatableMem = formatMemory(allocMem)
+				
+				// Pods on Node
+				fieldSelector := "spec.nodeName=" + nodeName
+				pods, _ := clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{FieldSelector: fieldSelector})
+				
+				var usageCpu, usageMem resource.Quantity
+				for _, p := range pods.Items {
+					readyCount := 0
+					for _, cs := range p.Status.ContainerStatuses { if cs.Ready { readyCount++ } }
+					ready := fmt.Sprintf("%d/%d", readyCount, len(p.Spec.Containers))
+					
+					data.Pods = append(data.Pods, PodInfo{
+						Namespace: p.Namespace, Name: p.Name, Status: string(p.Status.Phase), Ready: ready,
+					})
+					// Estimate usage from requests
+					for _, c := range p.Spec.Containers {
+						usageCpu.Add(*c.Resources.Requests.Cpu())
+						usageMem.Add(*c.Resources.Requests.Memory())
+					}
+				}
+				data.Resources.UsageCpu = formatCpu(&usageCpu)
+				data.Resources.UsageMem = formatMemory(&usageMem)
+				
+				if capCpu.MilliValue() > 0 {
+					data.Resources.AllocatableCpuPercent = (float64(allocCpu.MilliValue())/float64(capCpu.MilliValue()))*100
+					data.Resources.UsageCpuPercent = (float64(usageCpu.MilliValue())/float64(capCpu.MilliValue()))*100
+				}
+				if capMem.Value() > 0 {
+					data.Resources.AllocatableMemPercent = (float64(allocMem.Value())/float64(capMem.Value()))*100
+					data.Resources.UsageMemPercent = (float64(usageMem.Value())/float64(capMem.Value()))*100
+				}
 			}
 		}()
+		
+		// 2. Fetch Events
+		go func() {
+			defer wg.Done()
+			eventFieldSelector := "involvedObject.kind=Node,involvedObject.name=" + nodeName
+			eventList, _ := clientset.CoreV1().Events("").List(ctx, metav1.ListOptions{FieldSelector: eventFieldSelector})
+			if eventList != nil {
+				sort.Slice(eventList.Items, func(i, j int) bool {
+					return eventList.Items[i].LastTimestamp.Time.After(eventList.Items[j].LastTimestamp.Time)
+				})
+				for _, e := range eventList.Items {
+					data.Events = append(data.Events, EventInfo{
+						Type: e.Type, Reason: e.Reason, Message: e.Message,
+						Count: int(e.Count), LastSeen: formatAge(e.LastTimestamp),
+					})
+				}
+			}
+		}()
+		
 		wg.Wait()
 		return c.Render(200, "node-detail.html", data)
 	}
-}
-
-// --- HELPER to force timeout ---
-func findConfigWithTimeout(pattern string, clusterContextName string, timeout time.Duration) (*rest.Config, error) {
-	allFiles, err := filepath.Glob(pattern)
-	if err != nil {
-		return nil, err
-	}
-	for _, configFile := range allFiles {
-		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-		loadingRules.ExplicitPath = configFile
-		overrides := &clientcmd.ConfigOverrides{}
-		kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
-		rawConfig, _ := kubeConfig.RawConfig()
-		
-		if rawConfig.CurrentContext == clusterContextName {
-			config, configErr := kubeConfig.ClientConfig()
-			if configErr != nil {
-				return nil, configErr
-			}
-			// THE FIX: Explicitly set the transport timeout
-			config.Timeout = timeout
-			return config, nil
-		}
-	}
-	return nil, fmt.Errorf("config not found")
 }

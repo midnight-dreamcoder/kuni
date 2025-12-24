@@ -54,22 +54,21 @@ func handleSearchAPI(pattern string) echo.HandlerFunc {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid Regex"})
 		}
 
-		// Optimization: Build clients ONCE for all requested types
-		filesToProcess, err := getFilesToProcess(c, pattern)
+		// FIXED: configsToProcess
+		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Config Error"})
 		}
-		clients, _ := createClients(filesToProcess)
+		// FIXED: configsToProcess
+		clients, _ := createClients(configsToProcess)
 
 		resultsChan := make(chan SearchResult, 500)
 		var wg sync.WaitGroup
 
-		// Split the comma-separated types
 		types := strings.Split(resourceTypesParam, ",")
 
 		for _, resourceType := range types {
 			wg.Add(1)
-			// Dispatch based on type string
 			switch strings.TrimSpace(resourceType) {
 			case "cluster":
 				go searchClusters(re, clients, resultsChan, &wg)
@@ -110,13 +109,11 @@ func handleSearchAPI(pattern string) echo.HandlerFunc {
 			}
 		}
 
-		// Closer routine
 		go func() {
 			wg.Wait()
 			close(resultsChan)
 		}()
 
-		// Collect results
 		var results []SearchResult
 		for res := range resultsChan {
 			results = append(results, res)
@@ -130,7 +127,9 @@ func handleSearchAPI(pattern string) echo.HandlerFunc {
 func handleGetEvents(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		selectedCount, queryString, cacheBuster := getRequestFilter(c)
-		filesToProcess, err := getFilesToProcess(c, pattern)
+		
+		// FIXED: configsToProcess
+		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
 		}
@@ -149,10 +148,11 @@ func handleGetEvents(pattern string) echo.HandlerFunc {
 			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
-		clients, clientErrors := createClients(filesToProcess)
+		// FIXED: configsToProcess
+		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 
-		if len(filesToProcess) == 0 {
+		if len(configsToProcess) == 0 {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
 		}
 
@@ -297,7 +297,7 @@ func handleGetEvents(pattern string) echo.HandlerFunc {
 				
 				row.Cells = append(row.Cells, HeatmapCell{
 					Count:          totalCount,
-					Level:          getHeatLevel(totalCount),
+					Level:          getHeatLevel(totalCount), // Added helper below
 					TopReason:      topReason,
 					TopReasonCount: topReasonCount,
 				})
@@ -318,4 +318,18 @@ func handleGetEvents(pattern string) echo.HandlerFunc {
 
 		return c.Render(200, "events.html", data)
 	}
+}
+
+// Added missing helper
+func getHeatLevel(count int) string {
+	if count == 0 {
+		return "level-0"
+	} else if count < 5 {
+		return "level-1"
+	} else if count < 20 {
+		return "level-2"
+	} else if count < 50 {
+		return "level-3"
+	}
+	return "level-4"
 }

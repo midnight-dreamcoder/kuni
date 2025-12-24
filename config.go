@@ -12,6 +12,7 @@ type AppConfig struct {
 	AppTitle   string `json:"app_title"`
 	IsAdmin    bool   `json:"is_admin"`
 	ServerPort string `json:"server_port"`
+	DatabasePath string `json:"DatabasePath"`
 }
 
 var (

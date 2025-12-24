@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -12,32 +11,31 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
-// NOTE: FluxResource and FluxPageData are now in structs.go
+// NOTE: FluxResource and FluxPageData are in structs.go
 
 func handleGetFlux(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		selectedCount, queryString, cacheBuster := getRequestFilter(c)
 
-		// 1. Parse Selected Clusters (from URL ?c=...)
-		selectedParams := c.QueryParams()["c"]
-		selectedMap := make(map[string]bool)
-		for _, s := range selectedParams {
-			selectedMap[s] = true
-		}
-		
-		files, err := filepath.Glob(pattern)
+		// 1. Get Configs (DB + Disk) using the new Helper
+		configs, err := getConfigsToProcess(c, pattern)
 		if err != nil {
-			return c.String(500, "Error finding kubeconfig files")
+			return c.String(500, "Error loading kubeconfigs")
 		}
 
-		// 2. Prepare Base Data
+		// 2. Map selected clusters for the UI checkboxes
+		selectedMap := make(map[string]bool)
+		for _, cfg := range configs {
+			selectedMap[cfg.Name] = true
+		}
+
 		base := PageBase{
 			Title:                "Flux CD Overview",
 			ActivePage:           "flux",
 			SelectedClusterCount: selectedCount,
+			// Removed SelectedClusters from here
 			QueryString:          queryString,
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
@@ -52,35 +50,23 @@ func handleGetFlux(pattern string) echo.HandlerFunc {
 		var mutex sync.Mutex
 		var wg sync.WaitGroup
 
-		// 3. Parallel Fetch
-		for _, configFile := range files {
-			// FILTER FIX: Check against the Filename (ConfigName), not the Context Name
-			configName := filepath.Base(configFile)
-			
-			// If filter is active and this file isn't selected, skip it
-			if len(selectedMap) > 0 && !selectedMap[configName] {
-				continue
-			}
-
+		// 3. Parallel Fetch using ClusterConfig
+		for _, cfg := range configs {
 			wg.Add(1)
-			go func(file string, fName string) {
+			go func(config ClusterConfig) {
 				defer wg.Done()
 
-				// Build Client
-				config, err := clientcmd.BuildConfigFromFlags("", file)
-				if err != nil { return }
-				config.QPS = 20
-				config.Burst = 50
-				
-				dynClient, err := dynamic.NewForConfig(config)
+				// Build Dynamic Client from Abstract Config
+				restConfig, err := config.ToRestConfig()
 				if err != nil { return }
 				
-				// Get Display Name (Context Name) for the UI column
-				rawConfig, _ := clientcmd.LoadFromFile(file)
-				clusterDisplayName := fName
-				if rawConfig != nil && rawConfig.CurrentContext != "" {
-					clusterDisplayName = rawConfig.CurrentContext
-				}
+				restConfig.QPS = 20
+				restConfig.Burst = 50
+				
+				dynClient, err := dynamic.NewForConfig(restConfig)
+				if err != nil { return }
+				
+				clusterDisplayName := config.ContextName
 
 				// Fetch Helper
 				fetchGVR := func(gvr schema.GroupVersionResource, typeLabel string) {
@@ -151,7 +137,7 @@ func handleGetFlux(pattern string) echo.HandlerFunc {
 				fetchGVR(gvrKust, "Kustomization")
 				fetchGVR(gvrHelm, "HelmRelease")
 
-			}(configFile, configName)
+			}(cfg)
 		}
 
 		wg.Wait()
@@ -162,11 +148,10 @@ func handleGetFlux(pattern string) echo.HandlerFunc {
 			return allResources[i].Cluster < allResources[j].Cluster
 		})
 
-		// 4. Populate Struct with SelectedClusters
 		data := FluxPageData{
 			PageBase:         base,
 			Resources:        allResources,
-			SelectedClusters: selectedMap, // <--- Now matches other pages
+			SelectedClusters: selectedMap, // Correctly placed here
 		}
 
 		return c.Render(200, "flux.html", data)

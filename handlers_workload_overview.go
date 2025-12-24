@@ -16,7 +16,9 @@ import (
 func handleGetWorkloadOverview(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		selectedCount, queryString, cacheBuster := getRequestFilter(c)
-		filesToProcess, err := getFilesToProcess(c, pattern)
+		
+		// FIXED: configsToProcess
+		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
 		}
@@ -32,10 +34,11 @@ func handleGetWorkloadOverview(pattern string) echo.HandlerFunc {
 			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
-		clients, clientErrors := createClients(filesToProcess)
+		// FIXED: configsToProcess
+		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
-		if len(filesToProcess) == 0 {
+		if len(configsToProcess) == 0 {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
 		}
 
@@ -63,8 +66,6 @@ func handleGetWorkloadOverview(pattern string) echo.HandlerFunc {
 				Reasons:     make(map[string]int),
 			}
 
-			// We use internal concurrency here to fetch the 4 resource types simultaneously
-			// for this specific cluster.
 			var subWg sync.WaitGroup
 			var subMutex sync.Mutex
 			subWg.Add(4)

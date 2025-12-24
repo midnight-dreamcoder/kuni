@@ -30,11 +30,18 @@ func (t *TemplateRenderer) Render(w io.Writer, name string, data interface{}, c 
 func main() {
 	// 1. Load Config
 	LoadConfig("config.json")
+
+	InitDB(CurrentConfig.DatabasePath)
+	CreateDefaultUser()
 	
 	// --- 2. Initialize Echo ---
 	e := echo.New()
 	// Disable Debug mode in production for performance
 	e.Debug = true 
+
+	// --- GLOBAL MIDDLEWARE: OPTIONAL AUTH ---
+	// Allows Guests to view pages, but identifies Logged-in Users
+    e.Use(OptionalAuthMiddleware)
 
 	// --- 2.1 Serve static files ---
 	// Serve the entire static folder (CSS, JS, Images)
@@ -129,6 +136,18 @@ func main() {
 	log.Printf("🔍 Server configured to search for files matching: %s\n", pattern)
 
 	// Register routes
+
+	// AUTH ROUTES
+    e.GET("/login", handleLoginShow())
+    e.POST("/login", handleLoginSubmit())
+    e.GET("/logout", handleLogout())
+
+    // USER MANAGEMENT
+	e.GET("/users", handleGetUsers())
+	e.POST("/users/add", handleAddUser())
+	e.POST("/users/delete", handleDeleteUser())
+
+    // APP ROUTES
 	e.GET("/", handleSearch(pattern))
 	e.GET("/overview", handleGetClusterOverview(pattern))
 	

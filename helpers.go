@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"path/filepath"
 	"regexp"
 	"sync"
 	"time"
@@ -15,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/duration"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/rest"
 	metrics "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
@@ -97,62 +96,61 @@ func getRequestFilter(c echo.Context) (int, string, string) {
 	return selectedCount, queryString, cacheBuster
 }
 
-// getFilesToProcess filters config files based on a list of FILENAMES (from query 'c')
-func getFilesToProcess(c echo.Context, pattern string) ([]string, error) {
-	selectedFiles := c.QueryParams()["c"]
-	
-	if len(selectedFiles) == 0 {
-		return filepath.Glob(pattern)
-	}
-
-	allowedSet := make(map[string]bool)
-	for _, name := range selectedFiles {
-		allowedSet[name] = true
-	}
-
-	allFiles, err := filepath.Glob(pattern)
+// getConfigsToProcess filters config files based on a list of NAMES (from query 'c')
+// UPDATED: Now uses ClusterConfig from config_manager.go
+func getConfigsToProcess(c echo.Context, pattern string) ([]ClusterConfig, error) {
+	allConfigs, err := LoadAllConfigs(pattern)
 	if err != nil {
 		return nil, err
 	}
 
-	var filesToUse []string
-	for _, path := range allFiles {
-		filename := filepath.Base(path)
-		if allowedSet[filename] {
-			filesToUse = append(filesToUse, path)
+	selectedNames := c.QueryParams()["c"]
+	if len(selectedNames) == 0 {
+		return allConfigs, nil
+	}
+
+	allowedSet := make(map[string]bool)
+	for _, name := range selectedNames {
+		allowedSet[name] = true
+	}
+
+	var filtered []ClusterConfig
+	for _, cfg := range allConfigs {
+		if allowedSet[cfg.Name] {
+			filtered = append(filtered, cfg)
 		}
 	}
-	return filesToUse, nil
+	return filtered, nil
 }
 
-// createClients loops through a list of config files and returns clients
-func createClients(files []string) ([]KubeClient, []string) {
+// createClients loops through a list of ClusterConfigs and returns clients
+// UPDATED: Accepts []ClusterConfig instead of []string
+func createClients(configs []ClusterConfig) ([]KubeClient, []string) {
 	var clients []KubeClient
 	var errors []string
-	for _, configFile := range files {
-		contextName := filepath.Base(configFile)
-		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-		loadingRules.ExplicitPath = configFile
-		overrides := &clientcmd.ConfigOverrides{}
-		kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
-		rawConfig, err := kubeConfig.RawConfig()
-		if err == nil && rawConfig.CurrentContext != "" {
-			contextName = rawConfig.CurrentContext
-		}
-		config, err := kubeConfig.ClientConfig()
+	
+	for _, cfg := range configs {
+		restConfig, err := cfg.ToRestConfig()
 		if err != nil {
-			errors = append(errors, fmt.Sprintf("Cluster: %s | Error: Failed to build config (%v)", contextName, err))
+			errors = append(errors, fmt.Sprintf("Cluster: %s | Error: Failed to build config (%v)", cfg.Name, err))
 			continue
 		}
-		clientset, err := kubernetes.NewForConfig(config)
+
+		clientset, err := kubernetes.NewForConfig(restConfig)
 		if err != nil {
-			errors = append(errors, fmt.Sprintf("Cluster: %s | Error: Failed to create clientset (%v)", contextName, err))
+			errors = append(errors, fmt.Sprintf("Cluster: %s | Error: Failed to create clientset (%v)", cfg.Name, err))
 			continue
 		}
+		
+		pathStr := "DB"
+		if cfg.IsFile {
+			pathStr = cfg.Path
+		}
+
 		clients = append(clients, KubeClient{
 			Clientset:   clientset,
-			ContextName: contextName,
-			ConfigPath:  configFile,
+			ContextName: cfg.ContextName,
+			ConfigPath:  pathStr,
 		})
 	}
 	return clients, errors
@@ -193,62 +191,65 @@ func getNodeStatus(node v1.Node) (string, string) {
 }
 
 // findClient finds a single clientset based on a context name
+// UPDATED: Uses LoadAllConfigs
 func findClient(pattern string, clusterContextName string) (*kubernetes.Clientset, error) {
-	allFiles, err := filepath.Glob(pattern)
+	allConfigs, err := LoadAllConfigs(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("error finding kubeconfig files: %v", err)
+		return nil, fmt.Errorf("error finding configs: %v", err)
 	}
-	for _, configFile := range allFiles {
-		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-		loadingRules.ExplicitPath = configFile
-		overrides := &clientcmd.ConfigOverrides{}
-		kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
-		rawConfig, _ := kubeConfig.RawConfig()
-		if rawConfig.CurrentContext == clusterContextName {
-			config, configErr := kubeConfig.ClientConfig()
-			if configErr != nil {
-				return nil, fmt.Errorf("error building config for %s: %v", clusterContextName, configErr)
-			}
-			clientset, err := kubernetes.NewForConfig(config)
+	
+	for _, cfg := range allConfigs {
+		if cfg.ContextName == clusterContextName {
+			restConfig, err := cfg.ToRestConfig()
 			if err != nil {
-				return nil, fmt.Errorf("error creating clientset for %s: %v", clusterContextName, err)
+				return nil, fmt.Errorf("error building config for %s: %v", clusterContextName, err)
 			}
-			return clientset, nil // Success
+			return kubernetes.NewForConfig(restConfig)
 		}
 	}
 	return nil, fmt.Errorf("could not find a valid config for context: %s", clusterContextName)
 }
 
 // findMetricsClient finds a single metrics clientset based on a context name
+// UPDATED: Uses LoadAllConfigs
 func findMetricsClient(pattern string, clusterContextName string) (*metrics.Clientset, error) {
-	allFiles, err := filepath.Glob(pattern)
+	allConfigs, err := LoadAllConfigs(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("error finding kubeconfig files: %v", err)
+		return nil, fmt.Errorf("error finding configs: %v", err)
 	}
 
-	for _, configFile := range allFiles {
-		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-		loadingRules.ExplicitPath = configFile
-		overrides := &clientcmd.ConfigOverrides{}
-		kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
-		rawConfig, _ := kubeConfig.RawConfig()
-		
-		if rawConfig.CurrentContext == clusterContextName {
-			config, configErr := kubeConfig.ClientConfig()
-			if configErr != nil {
-				return nil, fmt.Errorf("error building config for %s: %v", clusterContextName, configErr)
-			}
-			metricsClientset, err := metrics.NewForConfig(config)
+	for _, cfg := range allConfigs {
+		if cfg.ContextName == clusterContextName {
+			restConfig, err := cfg.ToRestConfig()
 			if err != nil {
-				return nil, fmt.Errorf("error creating metrics clientset for %s: %v", clusterContextName, err)
+				return nil, fmt.Errorf("error building config for %s: %v", clusterContextName, err)
 			}
-			return metricsClientset, nil // Success
+			return metrics.NewForConfig(restConfig)
 		}
 	}
-	
 	return nil, fmt.Errorf("could not find a valid config for context: %s", clusterContextName)
 }
 
+// findConfigWithTimeout finds a config and applies a timeout (Used for status API)
+// UPDATED: Uses LoadAllConfigs
+func findConfigWithTimeout(pattern string, clusterContextName string, timeout time.Duration) (*rest.Config, error) {
+	allConfigs, err := LoadAllConfigs(pattern)
+	if err != nil {
+		return nil, err
+	}
+	
+	for _, cfg := range allConfigs {
+		if cfg.ContextName == clusterContextName {
+			restConfig, err := cfg.ToRestConfig()
+			if err != nil {
+				return nil, err
+			}
+			restConfig.Timeout = timeout
+			return restConfig, nil
+		}
+	}
+	return nil, fmt.Errorf("config not found")
+}
 
 // --- Search Helper Functions ---
 
@@ -581,7 +582,6 @@ func searchServices(re *regexp.Regexp, clients []KubeClient, results chan<- Sear
 			if err != nil { return }
 			for _, svc := range svcList.Items {
 				if re.MatchString(svc.Name) {
-					// FIXED: Corrected URL to point to /service/detail
 					results <- SearchResult{
 						Type:       "Service",
 						Name:       svc.Name,
@@ -597,22 +597,6 @@ func searchServices(re *regexp.Regexp, clients []KubeClient, results chan<- Sear
 		}(client)
 	}
 	internalWg.Wait()
-}
-
-func getHeatLevel(count int) string {
-	if count == 0 {
-		return "heat-0"
-	}
-	if count <= 5 {
-		return "heat-1" // Low
-	}
-	if count <= 20 {
-		return "heat-2" // Medium
-	}
-	if count <= 50 {
-		return "heat-3" // High
-	}
-	return "heat-4" // Critical
 }
 
 // searchPVCs performs regex search on PersistentVolumeClaims
@@ -633,7 +617,6 @@ func searchPVCs(re *regexp.Regexp, clients []KubeClient, results chan<- SearchRe
 					if cap, ok := pvc.Status.Capacity[v1.ResourceStorage]; ok {
 						storage = formatMemory(&cap)
 					}
-					// FIXED: Corrected URL to point to /pvc/detail
 					results <- SearchResult{
 						Type:       "PVC",
 						Name:       pvc.Name,
@@ -789,4 +772,27 @@ func parseContainer(c v1.Container) ContainerInfo {
 	}
 
 	return info
+}
+
+// GetBaseData constructs the common PageBase struct using Context for Auth info.
+// It replaces the manual initialization in handlers.
+func GetBaseData(c echo.Context, title, activePage string) PageBase {
+	// 1. Get Auth Info from Context (Populated by OptionalAuthMiddleware)
+	username, _ := c.Get("username").(string)
+	isAdmin, _ := c.Get("isAdmin").(bool)
+
+	// 2. Get Filter Info
+	selectedCount, queryString, cacheBuster := getRequestFilter(c)
+
+	// 3. Construct Base
+	return PageBase{
+		Title:                title,
+		ActivePage:           activePage,
+		SelectedClusterCount: selectedCount,
+		QueryString:          queryString,
+		CacheBuster:          cacheBuster,
+		LastRefreshed:        time.Now().Format(time.RFC1123),
+		IsAdmin:              isAdmin,  // Dynamic from DB/Session
+		UserName:             username, // Dynamic from DB/Session
+	}
 }

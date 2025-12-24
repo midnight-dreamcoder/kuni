@@ -17,7 +17,7 @@ import (
 func handleGetCRDs(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		selectedCount, queryString, cacheBuster := getRequestFilter(c)
-		filesToProcess, err := getFilesToProcess(c, pattern)
+		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding kubeconfig files")
 		}
@@ -33,7 +33,7 @@ func handleGetCRDs(pattern string) echo.HandlerFunc {
 			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
-		clients, clientErrors := createClients(filesToProcess)
+		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 
 		// --- 1. Define Fetch Logic ---

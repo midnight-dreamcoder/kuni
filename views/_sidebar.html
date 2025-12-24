@@ -94,33 +94,18 @@
         <div class="nav-section">
             <div class="nav-category" onclick="toggleNav(this)">Config & Storage</div>
             <ul class="nav-group">
-                {{ if .IsAdmin }}
-                    <li><a href="/configmaps{{ .QueryString }}" {{ if eq .ActivePage "configmaps" }}class="active"{{ end }}>
-                        <span class="sidebar-icon">📜</span>ConfigMaps
-                    </a></li>
-                    <li><a href="/secrets{{ .QueryString }}" {{ if eq .ActivePage "secrets" }}class="active"{{ end }}>
-                        <span class="sidebar-icon">🔒</span>Secrets
-                    </a></li>
-                    <li><a href="/serviceaccounts{{ .QueryString }}" {{ if eq .ActivePage "serviceaccounts" }}class="active"{{ end }}>
-                        <span class="sidebar-icon">🔑</span>Service Accounts
-                    </a></li>
-                    <li><a href="/pvcs{{ .QueryString }}" {{ if eq .ActivePage "pvcs" }}class="active"{{ end }}>
-                        <span class="sidebar-icon">🗂️</span>PVCs
-                    </a></li>
-                {{ else }}
-                    <li><div class="nav-link-locked" title="Admin Access Required">
-                        <span class="sidebar-icon">🔒</span>ConfigMaps
-                    </div></li>
-                    <li><div class="nav-link-locked" title="Admin Access Required">
-                        <span class="sidebar-icon">🔒</span>Secrets
-                    </div></li>
-                    <li><div class="nav-link-locked" title="Admin Access Required">
-                        <span class="sidebar-icon">🔒</span>Service Accounts
-                    </div></li>
-                    <li><div class="nav-link-locked" title="Admin Access Required">
-                        <span class="sidebar-icon">🔒</span>PVCs
-                    </div></li>
-                {{ end }}
+                <li><a href="/configmaps{{ .QueryString }}" {{ if eq .ActivePage "configmaps" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">📜</span>ConfigMaps
+                </a></li>
+                <li><a href="/secrets{{ .QueryString }}" {{ if eq .ActivePage "secrets" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">🔒</span>Secrets
+                </a></li>
+                <li><a href="/serviceaccounts{{ .QueryString }}" {{ if eq .ActivePage "serviceaccounts" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">🔑</span>Service Accounts
+                </a></li>
+                <li><a href="/pvcs{{ .QueryString }}" {{ if eq .ActivePage "pvcs" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">🗂️</span>PVCs
+                </a></li>
             </ul>
         </div>
 
@@ -132,52 +117,63 @@
                 </a></li>
             </ul>
         </div>
+
+        {{ if .IsAdmin }}
+        <div class="nav-section">
+            <div class="nav-category" onclick="toggleNav(this)">Administration</div>
+            <ul class="nav-group">
+                <li><a href="/users" {{ if eq .ActivePage "users" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">👥</span>Users
+                </a></li>
+            </ul>
+        </div>
+        {{ end }}
+
     </div>
 
     <div class="sidebar-user">
         <div class="user-avatar">
-            👤
+            {{ if .UserName }}👤{{ else }}👻{{ end }}
         </div>
         <div class="user-info">
             <span class="user-name">
                 {{ if .UserName }}{{ .UserName }}{{ else }}Guest User{{ end }}
             </span>
             <span class="user-role">
-                {{ if .IsAdmin }}Administrator{{ else }}Read-Only{{ end }}
+                {{ if .IsAdmin }}Administrator{{ else if .UserName }}Viewer{{ else }}Read-Only{{ end }}
             </span>
         </div>
+        {{ if .UserName }}
+            <a href="/logout" title="Sign Out" style="margin-left: auto; text-decoration: none; opacity: 0.7;">
+                🚪
+            </a>
+        {{ else }}
+            <a href="/login" title="Sign In" style="margin-left: auto; text-decoration: none; opacity: 0.9; color: var(--primary);">
+                🔑
+            </a>
+        {{ end }}
     </div>
 
     <div class="sidebar-footer">
-        v0.0.1-dev-3
+        v0.0.1-guest-mode
     </div>
 
     <script>
         function toggleNav(header) {
             const section = header.parentElement;
-            // If it's already open, just close it
             if (section.classList.contains('open')) {
                 section.classList.remove('open');
                 return;
             }
-
-            // Close all other sections (Accordion behavior)
             document.querySelectorAll('.nav-section').forEach(s => s.classList.remove('open'));
-
-            // Open this one
             section.classList.add('open');
         }
-
-        // Auto-open the section that contains the active link
         document.addEventListener("DOMContentLoaded", function() {
             const activeLink = document.querySelector('.sidebar-nav a.active');
             if (activeLink) {
                 const section = activeLink.closest('.nav-section');
-                if (section) {
-                    section.classList.add('open');
-                }
+                if (section) section.classList.add('open');
             } else {
-                // Default to first section if nothing active (e.g. home)
                 const firstSection = document.querySelector('.nav-section');
                 if (firstSection) firstSection.classList.add('open');
             }

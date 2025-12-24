@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -18,9 +19,11 @@ import (
 func handleGetPods(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		selectedCount, queryString, cacheBuster := getRequestFilter(c)
-		filesToProcess, err := getFilesToProcess(c, pattern)
+		
+		// FIXED: Use getConfigsToProcess (Hybrid Loader)
+		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
-			return c.String(500, "Error finding kubeconfig files")
+			return c.String(500, "Error finding configs")
 		}
 		
 		base := PageBase{
@@ -34,10 +37,11 @@ func handleGetPods(pattern string) echo.HandlerFunc {
 			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
-		clients, clientErrors := createClients(filesToProcess)
+		// FIXED: Pass []ClusterConfig
+		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 
-		if len(filesToProcess) == 0 {
+		if len(configsToProcess) == 0 {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
 		}
 
@@ -89,7 +93,6 @@ func handleGetPods(pattern string) echo.HandlerFunc {
 		}
 
 		// --- 2. Execute via ParallelFetch ---
-		// results is [][]PodInfo (a list of pod lists)
 		results, fetchErrors := ParallelFetch(clients, fetchPods)
 		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
 
@@ -115,7 +118,6 @@ func handleGetPods(pattern string) echo.HandlerFunc {
 		}
 
 		// --- 4. Sort and Format Data for View ---
-		// (This logic remains largely unchanged, just using the aggregated maps)
 		var clusterStats []ClusterStat
 		for n, c := range clusterDistribution { 
 			clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c}) 
@@ -176,7 +178,7 @@ func handleGetPods(pattern string) echo.HandlerFunc {
 	}
 }
 
-// handleGetPodDetail fetches a single pod and its events
+// handleGetPodDetail (Uses findClient, which is already fixed in helpers.go)
 func handleGetPodDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		selectedCount, queryString, cacheBuster := getRequestFilter(c)
@@ -194,7 +196,6 @@ func handleGetPodDetail(pattern string) echo.HandlerFunc {
 			QueryString:          queryString,
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
 			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
@@ -214,99 +215,99 @@ func handleGetPodDetail(pattern string) echo.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		// --- API Call 1: Get the Pod ---
-		pod, err := clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
-		if err != nil {
-			data.ErrorLogs = append(data.ErrorLogs, fmt.Sprintf("Failed to get pod: %v", err))
-		} else {
-			// --- FULL TECHNICAL PARSING ---
-			data.Status = string(pod.Status.Phase)
-			data.Reason = getPodReason(*pod)
-			data.Node = pod.Spec.NodeName
-			data.PodIP = pod.Status.PodIP
-			data.QoS = string(pod.Status.QOSClass)
-			data.ServiceAccount = pod.Spec.ServiceAccountName
-			data.Age = formatAge(pod.CreationTimestamp)
-			data.Labels = pod.ObjectMeta.Labels
-			data.Annotations = pod.ObjectMeta.Annotations
-			data.NodeSelector = pod.Spec.NodeSelector
-			for _, t := range pod.Spec.Tolerations {
-				data.Tolerations = append(data.Tolerations, fmt.Sprintf("%s (%s)", t.Key, t.Effect))
-			}
-			
-			if len(pod.OwnerReferences) > 0 {
-				data.OwnerName = pod.OwnerReferences[0].Name
-				data.OwnerKind = pod.OwnerReferences[0].Kind
-			} else {
-				data.OwnerName = "" // No owner
-			}
+		var wg sync.WaitGroup
+		wg.Add(2)
 
-			// Parse Containers (Init and App)
-			statusMap := make(map[string]v1.ContainerStatus)
-			for _, s := range pod.Status.ContainerStatuses {
-				statusMap[s.Name] = s
-			}
-			
-			// 1. Init Containers
-			for _, c := range pod.Spec.InitContainers {
-				data.InitContainers = append(data.InitContainers, parseContainer(c))
-			}
-			
-			// 2. App Containers (Populate status fields)
-			for _, c := range pod.Spec.Containers {
-				info := parseContainer(c)
-				if status, ok := statusMap[c.Name]; ok {
-					info.Ready = status.Ready
-					info.RestartCount = int(status.RestartCount)
-					if status.State.Running != nil {
-						info.State = "Running"
-					} else if status.State.Terminated != nil {
-						info.State = "Terminated"
-						info.Reason = status.State.Terminated.Reason
-					} else if status.State.Waiting != nil {
-						info.State = "Waiting"
-						info.Reason = status.State.Waiting.Reason
-					}
+		go func() {
+			defer wg.Done()
+			pod, err := clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+			if err != nil {
+				data.ErrorLogs = append(data.ErrorLogs, fmt.Sprintf("Failed to get pod: %v", err))
+			} else {
+				data.Status = string(pod.Status.Phase)
+				data.Reason = getPodReason(*pod)
+				data.Node = pod.Spec.NodeName
+				data.PodIP = pod.Status.PodIP
+				data.QoS = string(pod.Status.QOSClass)
+				data.ServiceAccount = pod.Spec.ServiceAccountName
+				data.Age = formatAge(pod.CreationTimestamp)
+				data.Labels = pod.ObjectMeta.Labels
+				data.Annotations = pod.ObjectMeta.Annotations
+				data.NodeSelector = pod.Spec.NodeSelector
+				for _, t := range pod.Spec.Tolerations {
+					data.Tolerations = append(data.Tolerations, fmt.Sprintf("%s (%s)", t.Key, t.Effect))
 				}
-				data.Containers = append(data.Containers, info)
+				if len(pod.OwnerReferences) > 0 {
+					data.OwnerName = pod.OwnerReferences[0].Name
+					data.OwnerKind = pod.OwnerReferences[0].Kind
+				} else {
+					data.OwnerName = "" // No owner
+				}
+
+				statusMap := make(map[string]v1.ContainerStatus)
+				for _, s := range pod.Status.ContainerStatuses {
+					statusMap[s.Name] = s
+				}
+				
+				for _, c := range pod.Spec.InitContainers {
+					data.InitContainers = append(data.InitContainers, parseContainer(c))
+				}
+				for _, c := range pod.Spec.Containers {
+					info := parseContainer(c)
+					if status, ok := statusMap[c.Name]; ok {
+						info.Ready = status.Ready
+						info.RestartCount = int(status.RestartCount)
+						if status.State.Running != nil {
+							info.State = "Running"
+						} else if status.State.Terminated != nil {
+							info.State = "Terminated"
+							info.Reason = status.State.Terminated.Reason
+						} else if status.State.Waiting != nil {
+							info.State = "Waiting"
+							info.Reason = status.State.Waiting.Reason
+						}
+					}
+					data.Containers = append(data.Containers, info)
+				}
+				for _, c := range pod.Status.Conditions {
+					data.Conditions = append(data.Conditions, PodConditionInfo{
+						Type: string(c.Type), Status: string(c.Status),
+						Reason: c.Reason, Message: c.Message,
+					})
+				}
+				for _, v := range pod.Spec.Volumes {
+					volType := "Unknown"
+					if v.ConfigMap != nil { volType = "ConfigMap" }
+					if v.Secret != nil { volType = "Secret" }
+					if v.EmptyDir != nil { volType = "EmptyDir" }
+					if v.PersistentVolumeClaim != nil { volType = "PersistentVolumeClaim" }
+					data.Volumes = append(data.Volumes, VolumeInfo{
+						Name: v.Name, Type: volType,
+					})
+				}
 			}
-			
-			// Populate Conditions and Volumes (Unchanged)
-			for _, c := range pod.Status.Conditions {
-				data.Conditions = append(data.Conditions, PodConditionInfo{
-					Type: string(c.Type), Status: string(c.Status),
-					Reason: c.Reason, Message: c.Message,
-				})
-			}
-			for _, v := range pod.Spec.Volumes {
-				volType := "Unknown"
-				if v.ConfigMap != nil { volType = "ConfigMap" }
-				if v.Secret != nil { volType = "Secret" }
-				if v.EmptyDir != nil { volType = "EmptyDir" }
-				if v.PersistentVolumeClaim != nil { volType = "PersistentVolumeClaim" }
-				data.Volumes = append(data.Volumes, VolumeInfo{
-					Name: v.Name, Type: volType,
-				})
-			}
-			// --- END FULL PARSING ---
-		}
+		}()
 		
-		// --- API Call 2: Get Events ---
-		fieldSelector := fmt.Sprintf("involvedObject.name=%s,involvedObject.namespace=%s", podName, namespace)
-		eventList, err := clientset.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{FieldSelector: fieldSelector})
-		if err != nil {
-			data.ErrorLogs = append(data.ErrorLogs, fmt.Sprintf("Failed to get events: %v", err))
-		} else {
-			sort.Slice(eventList.Items, func(i, j int) bool {
-				return eventList.Items[i].LastTimestamp.Time.After(eventList.Items[j].LastTimestamp.Time)
-			})
-			for _, e := range eventList.Items {
-				data.Events = append(data.Events, EventInfo{
-					Type: e.Type, Reason: e.Reason, Message: e.Message,
-					Count: int(e.Count), LastSeen: formatAge(e.LastTimestamp),
+		go func() {
+			defer wg.Done()
+			fieldSelector := fmt.Sprintf("involvedObject.name=%s,involvedObject.namespace=%s", podName, namespace)
+			eventList, err := clientset.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{FieldSelector: fieldSelector})
+			if err != nil {
+				data.ErrorLogs = append(data.ErrorLogs, fmt.Sprintf("Failed to get events: %v", err))
+			} else {
+				sort.Slice(eventList.Items, func(i, j int) bool {
+					return eventList.Items[i].LastTimestamp.Time.After(eventList.Items[j].LastTimestamp.Time)
 				})
+				for _, e := range eventList.Items {
+					data.Events = append(data.Events, EventInfo{
+						Type: e.Type, Reason: e.Reason, Message: e.Message,
+						Count: int(e.Count), LastSeen: formatAge(e.LastTimestamp),
+					})
+				}
 			}
-		}
+		}()
+
+		wg.Wait()
 		return c.Render(200, "pod-detail.html", data)
 	}
 }
@@ -314,7 +315,6 @@ func handleGetPodDetail(pattern string) echo.HandlerFunc {
 // handleGetPodLogs streams logs for a specific container
 func handleGetPodLogs(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		// [SECURITY] Strict Admin Check for Logs
 		if !CurrentConfig.IsAdmin {
 			return c.String(http.StatusForbidden, "⛔ Access Denied: Pod logs contain sensitive information.")
 		}
@@ -329,7 +329,6 @@ func handleGetPodLogs(pattern string) echo.HandlerFunc {
 			return c.String(http.StatusInternalServerError, "Client error: "+err.Error())
 		}
 		
-		// 1 Hour timeout for the stream
 		logCtx, logCancel := context.WithTimeout(context.Background(), 1*time.Hour)
 		defer logCancel()
 
@@ -339,31 +338,26 @@ func handleGetPodLogs(pattern string) echo.HandlerFunc {
 			TailLines: func() *int64 { i := int64(1000); return &i }(),
 		}
 		
-		// Get the Request (do not stream yet)
 		req := clientset.CoreV1().Pods(namespace).GetLogs(podName, logOptions)
 		
-		// Start stream
 		podLogs, err := req.Stream(logCtx) 
 		if err != nil {
 			return c.String(http.StatusNotFound, "Error starting log stream: "+err.Error())
 		}
 		defer podLogs.Close()
 		
-		// Send headers immediately
 		c.Response().Header().Set(echo.HeaderContentType, echo.MIMETextPlainCharsetUTF8)
 		c.Response().Header().Set("X-Content-Type-Options", "nosniff")
 		c.Response().Header().Set("Cache-Control", "no-cache") 
 		c.Response().WriteHeader(http.StatusOK) 
 		c.Response().Flush()
 
-		// Stream loop
 		buf := make([]byte, 1024)
 		for {
 			n, readErr := podLogs.Read(buf)
 			if n > 0 {
 				_, writeErr := c.Response().Write(buf[:n])
 				if writeErr != nil {
-					// Client disconnected
 					break
 				}
 				c.Response().Flush()
@@ -371,9 +365,8 @@ func handleGetPodLogs(pattern string) echo.HandlerFunc {
 			
 			if readErr != nil {
 				if readErr == io.EOF {
-					break // Normal end
+					break
 				}
-				// Log error but we can't send it to client as headers are already sent
 				log.Printf("Stream error: %v", readErr)
 				break
 			}

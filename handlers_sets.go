@@ -4,438 +4,451 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
-	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// handleGetDaemonSets lists all daemonsets
-func handleGetDaemonSets(pattern string) echo.HandlerFunc {
+// --- REPLICA SETS ---
+
+// handleGetReplicaSets lists all ReplicaSets from selected clusters
+func handleGetReplicaSets(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		selectedCount, queryString, cacheBuster := getRequestFilter(c)
-		filesToProcess, err := getFilesToProcess(c, pattern)
+		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
-			return c.String(500, "Error finding kubeconfig files")
+			return c.String(500, "Error finding configs")
 		}
 		
 		base := PageBase{
-			Title:                "All DaemonSets",
-			ActivePage:           "daemonsets",
+			Title:                "ReplicaSets",
+			ActivePage:           "replicasets",
 			SelectedClusterCount: selectedCount,
 			QueryString:          queryString,
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
 			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
-		clients, clientErrors := createClients(filesToProcess)
+		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
-		
-		if len(filesToProcess) == 0 {
-			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
-		}
 
-		// --- 1. Define Fetch Logic ---
-		type dsFetchResult struct {
+		type rsResult struct {
 			ClusterName string
-			Items       []appsv1.DaemonSet
+			Items       []ReplicaSetInfo
+			Stat        ClusterStat
+			NSCount     map[string]int
 		}
 
-		fetchDS := func(client KubeClient) (dsFetchResult, error) {
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		fetchRS := func(client KubeClient) (rsResult, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			list, err := client.Clientset.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{})
+			list, err := client.Clientset.AppsV1().ReplicaSets("").List(ctx, metav1.ListOptions{})
 			if err != nil {
-				return dsFetchResult{}, err
+				return rsResult{}, err
 			}
-			return dsFetchResult{ClusterName: client.ContextName, Items: list.Items}, nil
+			var items []ReplicaSetInfo
+			nsCount := make(map[string]int)
+			for _, rs := range list.Items {
+				owner := "-"
+				if len(rs.OwnerReferences) > 0 {
+					owner = rs.OwnerReferences[0].Kind + "/" + rs.OwnerReferences[0].Name
+				}
+				var replicas int32 = 1
+				if rs.Spec.Replicas != nil {
+					replicas = *rs.Spec.Replicas
+				}
+				readyStr := fmt.Sprintf("%d/%d", rs.Status.ReadyReplicas, replicas)
+				items = append(items, ReplicaSetInfo{
+					Cluster:   client.ContextName,
+					Namespace: rs.Namespace,
+					Name:      rs.Name,
+					Ready:     readyStr,
+					Owner:     owner,
+					Age:       formatAge(rs.CreationTimestamp),
+				})
+				nsCount[rs.Namespace]++
+			}
+			return rsResult{
+				ClusterName: client.ContextName,
+				Items:       items,
+				Stat:        ClusterStat{Name: client.ContextName, Count: len(items)},
+				NSCount:     nsCount,
+			}, nil
 		}
-
-		// --- 2. Execute ---
-		results, fetchErrors := ParallelFetch(clients, fetchDS)
+		
+		results, fetchErrors := ParallelFetch(clients, fetchRS)
 		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
 
-		// --- 3. Aggregate ---
-		var allDaemonSets []DaemonSetInfo
-		clusterDistribution := make(map[string]int)
-		namespaceDistribution := make(map[string]int)
-		nodeSelectorDistribution := make(map[string]int)
+		var allRS []ReplicaSetInfo
+		var cStats []ClusterStat
+		gNS := make(map[string]int)
 
 		for _, res := range results {
-			for _, ds := range res.Items {
-				clusterDistribution[res.ClusterName]++
-				namespaceDistribution[ds.Namespace]++
-				readyStr := fmt.Sprintf("%d/%d", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled)
-				
-				nodeSelector := "None"
-				if len(ds.Spec.Template.Spec.NodeSelector) > 0 {
-					var selectors []string
-					for k, v := range ds.Spec.Template.Spec.NodeSelector {
-						selectors = append(selectors, fmt.Sprintf("%s=%s", k, v))
-					}
-					nodeSelector = strings.Join(selectors, ", ")
-				}
-				nodeSelectorDistribution[nodeSelector]++
-				
-				allDaemonSets = append(allDaemonSets, DaemonSetInfo{
-					Cluster:   res.ClusterName,
-					Namespace: ds.Namespace,
-					Name:      ds.Name,
-					Ready:     readyStr,
-					Node:      nodeSelector,
-					Age:       formatAge(ds.CreationTimestamp),
-				})
+			allRS = append(allRS, res.Items...)
+			cStats = append(cStats, res.Stat)
+			for n, c := range res.NSCount {
+				gNS[n] += c
 			}
 		}
 		
-		// --- 4. Stats & Sort ---
-		var clusterStats []ClusterStat; for n, c := range clusterDistribution { clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c}) }; sort.Slice(clusterStats, func(i, j int) bool { return clusterStats[i].Name < clusterStats[j].Name })
+		var nsStats []NamespaceStat
+		for n, c := range gNS {
+			nsStats = append(nsStats, NamespaceStat{Name: n, Count: c})
+		}
+		sort.Slice(nsStats, func(i, j int) bool { return nsStats[i].Count > nsStats[j].Count })
 		
-		const topN = 10
-		var namespaceStats []NamespaceStat
-		for n, c := range namespaceDistribution {
-			namespaceStats = append(namespaceStats, NamespaceStat{Name: n, Count: c})
-		}
-		sort.Slice(namespaceStats, func(i, j int) bool {
-			return namespaceStats[i].Count > namespaceStats[j].Count
+		return c.Render(200, "replicasets.html", ReplicaSetPageData{
+			PageBase:       base,
+			ReplicaSets:    allRS,
+			TotalReplicaSets: len(allRS),
+			ClusterStats:   cStats,
+			NamespaceStats: nsStats,
 		})
-		if len(namespaceStats) > topN {
-			var otherSum int
-			for _, ns := range namespaceStats[topN:] {
-				otherSum += ns.Count
-			}
-			namespaceStats = namespaceStats[:topN]
-			namespaceStats = append(namespaceStats, NamespaceStat{Name: "Others", Count: otherSum})
-		}
-
-		var nodeSelectorStats []NamespaceStat
-		for n, c := range nodeSelectorDistribution {
-			nodeSelectorStats = append(nodeSelectorStats, NamespaceStat{Name: n, Count: c})
-		}
-		sort.Slice(nodeSelectorStats, func(i, j int) bool {
-			return nodeSelectorStats[i].Count > nodeSelectorStats[j].Count
-		})
-		if len(nodeSelectorStats) > topN {
-			var otherSum int
-			for _, o := range nodeSelectorStats[topN:] {
-				otherSum += o.Count
-			}
-			nodeSelectorStats = nodeSelectorStats[:topN]
-			nodeSelectorStats = append(nodeSelectorStats, NamespaceStat{Name: "Others", Count: otherSum})
-		}
-
-		data := DaemonSetPageData{
-			PageBase:          base,
-			DaemonSets:        allDaemonSets,
-			TotalDaemonSets:   len(allDaemonSets),
-			ClusterStats:      clusterStats,
-			NamespaceStats:    namespaceStats,
-			NodeSelectorStats: nodeSelectorStats,
-		}
-		return c.Render(200, "daemonsets.html", data)
 	}
 }
 
-// handleGetDaemonSetDetail fetches a single daemonset
-func handleGetDaemonSetDetail(pattern string) echo.HandlerFunc {
+// handleGetReplicaSetDetail fetches details for a single ReplicaSet
+func handleGetReplicaSetDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		selectedCount, queryString, cacheBuster := getRequestFilter(c)
-		clusterContextName := c.QueryParam("cluster_name")
-		namespace := c.QueryParam("namespace")
-		dsName := c.QueryParam("name")
-		if clusterContextName == "" || namespace == "" || dsName == "" {
-			return c.String(400, "Missing required query parameters: cluster_name, namespace, name")
-		}
+		cluster := c.QueryParam("cluster_name")
+		ns := c.QueryParam("namespace")
+		name := c.QueryParam("name")
 
 		base := PageBase{
-			Title:                dsName,
+			Title:                name,
+			ActivePage:           "replicasets",
+			SelectedClusterCount: selectedCount,
+			QueryString:          queryString,
+			CacheBuster:          cacheBuster,
+			LastRefreshed:        time.Now().Format(time.RFC1123),
+			IsAdmin:              CurrentConfig.IsAdmin,
+		}
+
+		clientset, err := findClient(pattern, cluster)
+		if err != nil {
+			return c.String(404, "Cluster not found")
+		}
+
+		data := ReplicaSetDetailPageData{
+			PageBase:       base,
+			ClusterName:    cluster,
+			NamespaceName:  ns,
+			ReplicaSetName: name,
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		rs, err := clientset.AppsV1().ReplicaSets(ns).Get(ctx, name, metav1.GetOptions{})
+		if err == nil {
+			var replicas int32 = 1
+			if rs.Spec.Replicas != nil {
+				replicas = *rs.Spec.Replicas
+			}
+			data.Status = fmt.Sprintf("%d/%d Ready", rs.Status.ReadyReplicas, replicas)
+			data.Selector = metav1.FormatLabelSelector(rs.Spec.Selector)
+			data.Age = formatAge(rs.CreationTimestamp)
+			if len(rs.OwnerReferences) > 0 {
+				data.OwnerName = rs.OwnerReferences[0].Name
+				data.OwnerKind = rs.OwnerReferences[0].Kind
+			} else {
+				data.OwnerName = "None"
+			}
+
+			// Fetch Pods
+			podList, _ := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: data.Selector})
+			for _, p := range podList.Items {
+				data.Pods = append(data.Pods, PodInfo{
+					Name: p.Name, Status: string(p.Status.Phase), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
+				})
+			}
+		}
+
+		// Fetch Events
+		events, _ := clientset.CoreV1().Events(ns).List(ctx, metav1.ListOptions{FieldSelector: "involvedObject.name=" + name})
+		for _, e := range events.Items {
+			data.Events = append(data.Events, EventInfo{
+				Type: e.Type, Reason: e.Reason, Message: e.Message, Count: int(e.Count), LastSeen: formatAge(e.LastTimestamp),
+			})
+		}
+
+		return c.Render(200, "replicaset-detail.html", data)
+	}
+}
+
+// --- DAEMON SETS ---
+
+// handleGetDaemonSets lists all DaemonSets
+func handleGetDaemonSets(pattern string) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		selectedCount, queryString, cacheBuster := getRequestFilter(c)
+		configsToProcess, err := getConfigsToProcess(c, pattern)
+		if err != nil {
+			return c.String(500, "Error finding configs")
+		}
+		
+		base := PageBase{
+			Title:                "DaemonSets",
 			ActivePage:           "daemonsets",
 			SelectedClusterCount: selectedCount,
 			QueryString:          queryString,
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
 			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
-		clientset, err := findClient(pattern, clusterContextName)
+		clients, clientErrors := createClients(configsToProcess)
+		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
+		
+		type dsResult struct {
+			ClusterName string
+			Items       []DaemonSetInfo
+			Stat        ClusterStat
+		}
+
+		fetchDS := func(client KubeClient) (dsResult, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			list, err := client.Clientset.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return dsResult{}, err
+			}
+			var items []DaemonSetInfo
+			for _, ds := range list.Items {
+				readyStr := fmt.Sprintf("%d/%d", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled)
+				items = append(items, DaemonSetInfo{
+					Cluster:   client.ContextName,
+					Namespace: ds.Namespace,
+					Name:      ds.Name,
+					Ready:     readyStr,
+					Age:       formatAge(ds.CreationTimestamp),
+				})
+			}
+			return dsResult{
+				ClusterName: client.ContextName,
+				Items:       items,
+				Stat:        ClusterStat{Name: client.ContextName, Count: len(items)},
+			}, nil
+		}
+
+		results, fetchErrors := ParallelFetch(clients, fetchDS)
+		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
+
+		var allDS []DaemonSetInfo
+		var cStats []ClusterStat
+		for _, res := range results {
+			allDS = append(allDS, res.Items...)
+			cStats = append(cStats, res.Stat)
+		}
+		
+		return c.Render(200, "daemonsets.html", DaemonSetPageData{
+			PageBase:       base,
+			DaemonSets:     allDS,
+			TotalDaemonSets: len(allDS),
+			ClusterStats:   cStats,
+		})
+	}
+}
+
+// handleGetDaemonSetDetail fetches details for a single DaemonSet
+func handleGetDaemonSetDetail(pattern string) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		selectedCount, queryString, cacheBuster := getRequestFilter(c)
+		cluster := c.QueryParam("cluster_name")
+		ns := c.QueryParam("namespace")
+		name := c.QueryParam("name")
+
+		base := PageBase{
+			Title:                name,
+			ActivePage:           "daemonsets",
+			SelectedClusterCount: selectedCount,
+			QueryString:          queryString,
+			CacheBuster:          cacheBuster,
+			LastRefreshed:        time.Now().Format(time.RFC1123),
+			IsAdmin:              CurrentConfig.IsAdmin,
+		}
+
+		clientset, err := findClient(pattern, cluster)
 		if err != nil {
-			base.ErrorLogs = append(base.ErrorLogs, err.Error())
-			return c.Render(200, "daemonset-detail.html", DaemonSetDetailPageData{PageBase: base})
+			return c.String(404, "Cluster not found")
 		}
+
 		data := DaemonSetDetailPageData{
-			PageBase:        base,
-			ClusterName:     clusterContextName,
-			NamespaceName:   namespace,
-			DaemonSetName:   dsName,
+			PageBase:      base,
+			ClusterName:   cluster,
+			NamespaceName: ns,
+			DaemonSetName: name,
 		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		ds, err := clientset.AppsV1().DaemonSets(namespace).Get(ctx, dsName, metav1.GetOptions{})
-		if err != nil {
-			data.ErrorLogs = append(data.ErrorLogs, fmt.Sprintf("Failed to get daemonset: %v", err))
-		} else {
-			data.Overview.Status = fmt.Sprintf("%d/%d Ready", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled)
+
+		ds, err := clientset.AppsV1().DaemonSets(ns).Get(ctx, name, metav1.GetOptions{})
+		if err == nil {
+			data.Overview.Status = fmt.Sprintf("%d Desired, %d Ready", ds.Status.DesiredNumberScheduled, ds.Status.NumberReady)
+			data.Overview.Selector = metav1.FormatLabelSelector(ds.Spec.Selector)
 			data.Overview.Age = formatAge(ds.CreationTimestamp)
-			nodeSelector := "None"
-			if len(ds.Spec.Template.Spec.NodeSelector) > 0 {
-				var selectors []string
-				for k, v := range ds.Spec.Template.Spec.NodeSelector {
-					selectors = append(selectors, fmt.Sprintf("%s=%s", k, v))
-				}
-				nodeSelector = strings.Join(selectors, ", ")
-			}
-			data.Overview.NodeSelector = nodeSelector
-			selector, selErr := metav1.LabelSelectorAsSelector(ds.Spec.Selector)
-			if selErr != nil {
-				data.ErrorLogs = append(data.ErrorLogs, fmt.Sprintf("Failed to build label selector: %v", selErr))
-			} else {
-				data.Overview.Selector = selector.String()
-				podList, podErr := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector.String()})
-				if podErr != nil {
-					data.ErrorLogs = append(data.ErrorLogs, fmt.Sprintf("Failed to list pods: %v", podErr))
-				} else {
-					for _, pod := range podList.Items {
-						readyCount := 0; for _, cs := range pod.Status.ContainerStatuses { if cs.Ready { readyCount++ } }
-						readyStr := fmt.Sprintf("%d/%d", readyCount, len(pod.Spec.Containers))
-						restartCount := 0; for _, cs := range pod.Status.ContainerStatuses { restartCount += int(cs.RestartCount) }
-						nodeName := pod.Spec.NodeName; if nodeName == "" { nodeName = "N/A" }
-						data.Pods = append(data.Pods, PodInfo{
-							Cluster:   clusterContextName,
-							Namespace: pod.Namespace,
-							Name:      pod.Name,
-							Ready:     readyStr,
-							Status:    string(pod.Status.Phase),
-							Reason:    getPodReason(pod),
-							Restarts:  restartCount,
-							Node:      nodeName,
-							PodIP:     pod.Status.PodIP,
-							QoS:       string(pod.Status.QOSClass),
-							Age:       formatAge(pod.CreationTimestamp),
-						})
-					}
-				}
-			}
-		}
-		fieldSelector := fmt.Sprintf("involvedObject.name=%s,involvedObject.namespace=%s", dsName, namespace)
-		eventList, err := clientset.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{FieldSelector: fieldSelector})
-		if err != nil {
-			data.ErrorLogs = append(data.ErrorLogs, fmt.Sprintf("Failed to get events: %v", err))
-		} else {
-			sort.Slice(eventList.Items, func(i, j int) bool {
-				return eventList.Items[i].LastTimestamp.Time.After(eventList.Items[j].LastTimestamp.Time)
-			})
-			for _, e := range eventList.Items {
-				data.Events = append(data.Events, EventInfo{
-					Type: e.Type, Reason: e.Reason, Message: e.Message,
-					Count: int(e.Count), LastSeen: formatAge(e.LastTimestamp),
+			
+			// Fetch Pods
+			podList, _ := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: data.Overview.Selector})
+			for _, p := range podList.Items {
+				data.Pods = append(data.Pods, PodInfo{
+					Name: p.Name, Status: string(p.Status.Phase), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
 				})
 			}
 		}
+
+		events, _ := clientset.CoreV1().Events(ns).List(ctx, metav1.ListOptions{FieldSelector: "involvedObject.name=" + name})
+		for _, e := range events.Items {
+			data.Events = append(data.Events, EventInfo{
+				Type: e.Type, Reason: e.Reason, Message: e.Message, Count: int(e.Count), LastSeen: formatAge(e.LastTimestamp),
+			})
+		}
+
 		return c.Render(200, "daemonset-detail.html", data)
 	}
 }
 
-// handleGetStatefulSets lists all statefulsets
+// --- STATEFUL SETS ---
+
+// handleGetStatefulSets lists all StatefulSets
 func handleGetStatefulSets(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		selectedCount, queryString, cacheBuster := getRequestFilter(c)
-		filesToProcess, err := getFilesToProcess(c, pattern)
+		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
-			return c.String(500, "Error finding kubeconfig files")
+			return c.String(500, "Error finding configs")
 		}
-
+		
 		base := PageBase{
-			Title:                "All StatefulSets",
+			Title:                "StatefulSets",
 			ActivePage:           "statefulsets",
 			SelectedClusterCount: selectedCount,
 			QueryString:          queryString,
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
 			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
-		clients, clientErrors := createClients(filesToProcess)
+		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 		
-		if len(filesToProcess) == 0 {
-			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
-		}
-
-		// --- 1. Fetch Logic ---
-		type ssFetchResult struct {
+		type ssResult struct {
 			ClusterName string
-			Items       []appsv1.StatefulSet
+			Items       []StatefulSetInfo
+			Stat        ClusterStat
 		}
 
-		fetchSS := func(client KubeClient) (ssFetchResult, error) {
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		fetchSS := func(client KubeClient) (ssResult, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			list, err := client.Clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
 			if err != nil {
-				return ssFetchResult{}, err
+				return ssResult{}, err
 			}
-			return ssFetchResult{ClusterName: client.ContextName, Items: list.Items}, nil
-		}
-
-		// --- 2. Execute ---
-		results, fetchErrors := ParallelFetch(clients, fetchSS)
-		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
-
-		// --- 3. Aggregate ---
-		var allStatefulSets []StatefulSetInfo
-		clusterDistribution := make(map[string]int)
-		namespaceDistribution := make(map[string]int)
-
-		for _, res := range results {
-			for _, ss := range res.Items {
-				clusterDistribution[res.ClusterName]++
-				namespaceDistribution[ss.Namespace]++
-				
-				var desiredReplicas int32 = 1
+			var items []StatefulSetInfo
+			for _, ss := range list.Items {
+				var replicas int32 = 1
 				if ss.Spec.Replicas != nil {
-					desiredReplicas = *ss.Spec.Replicas
+					replicas = *ss.Spec.Replicas
 				}
-				readyStr := fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, desiredReplicas)
-				
-				allStatefulSets = append(allStatefulSets, StatefulSetInfo{
-					Cluster:   res.ClusterName,
+				readyStr := fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, replicas)
+				items = append(items, StatefulSetInfo{
+					Cluster:   client.ContextName,
 					Namespace: ss.Namespace,
 					Name:      ss.Name,
 					Ready:     readyStr,
 					Age:       formatAge(ss.CreationTimestamp),
 				})
 			}
-		}
-		
-		// --- 4. Stats ---
-		var clusterStats []ClusterStat; for n, c := range clusterDistribution { clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c}) }; sort.Slice(clusterStats, func(i, j int) bool { return clusterStats[i].Name < clusterStats[j].Name })
-		
-		const topN = 10
-		var namespaceStats []NamespaceStat
-		for n, c := range namespaceDistribution {
-			namespaceStats = append(namespaceStats, NamespaceStat{Name: n, Count: c})
-		}
-		sort.Slice(namespaceStats, func(i, j int) bool {
-			return namespaceStats[i].Count > namespaceStats[j].Count
-		})
-		if len(namespaceStats) > topN {
-			var otherSum int
-			for _, ns := range namespaceStats[topN:] {
-				otherSum += ns.Count
-			}
-			namespaceStats = namespaceStats[:topN]
-			namespaceStats = append(namespaceStats, NamespaceStat{Name: "Others", Count: otherSum})
+			return ssResult{
+				ClusterName: client.ContextName,
+				Items:       items,
+				Stat:        ClusterStat{Name: client.ContextName, Count: len(items)},
+			}, nil
 		}
 
-		data := StatefulSetPageData{
-			PageBase:          base,
-			StatefulSets:      allStatefulSets,
-			TotalStatefulSets: len(allStatefulSets),
-			ClusterStats:      clusterStats,
-			NamespaceStats:    namespaceStats,
+		results, fetchErrors := ParallelFetch(clients, fetchSS)
+		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
+
+		var allSS []StatefulSetInfo
+		var cStats []ClusterStat
+		for _, res := range results {
+			allSS = append(allSS, res.Items...)
+			cStats = append(cStats, res.Stat)
 		}
-		return c.Render(200, "statefulsets.html", data)
+		
+		return c.Render(200, "statefulsets.html", StatefulSetPageData{
+			PageBase:        base,
+			StatefulSets:    allSS,
+			TotalStatefulSets: len(allSS),
+			ClusterStats:    cStats,
+		})
 	}
 }
 
-// handleGetStatefulSetDetail fetches a single statefulset
+// handleGetStatefulSetDetail fetches details for a single StatefulSet
 func handleGetStatefulSetDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		selectedCount, queryString, cacheBuster := getRequestFilter(c)
-		clusterContextName := c.QueryParam("cluster_name")
-		namespace := c.QueryParam("namespace")
-		ssName := c.QueryParam("name")
-		if clusterContextName == "" || namespace == "" || ssName == "" {
-			return c.String(400, "Missing required query parameters: cluster_name, namespace, name")
-		}
+		cluster := c.QueryParam("cluster_name")
+		ns := c.QueryParam("namespace")
+		name := c.QueryParam("name")
 
 		base := PageBase{
-			Title:                ssName,
+			Title:                name,
 			ActivePage:           "statefulsets",
 			SelectedClusterCount: selectedCount,
 			QueryString:          queryString,
 			CacheBuster:          cacheBuster,
 			LastRefreshed:        time.Now().Format(time.RFC1123),
-			IsSearchPage:         false,
 			IsAdmin:              CurrentConfig.IsAdmin,
 		}
 
-		clientset, err := findClient(pattern, clusterContextName)
+		clientset, err := findClient(pattern, cluster)
 		if err != nil {
-			base.ErrorLogs = append(base.ErrorLogs, err.Error())
-			return c.Render(200, "statefulset-detail.html", StatefulSetDetailPageData{PageBase: base})
+			return c.String(404, "Cluster not found")
 		}
+
 		data := StatefulSetDetailPageData{
 			PageBase:        base,
-			ClusterName:     clusterContextName,
-			NamespaceName:   namespace,
-			StatefulSetName: ssName,
+			ClusterName:     cluster,
+			NamespaceName:   ns,
+			StatefulSetName: name,
 		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		ss, err := clientset.AppsV1().StatefulSets(namespace).Get(ctx, ssName, metav1.GetOptions{})
-		if err != nil {
-			data.ErrorLogs = append(data.ErrorLogs, fmt.Sprintf("Failed to get statefulset: %v", err))
-		} else {
-			var desiredReplicas int32 = 1
+
+		ss, err := clientset.AppsV1().StatefulSets(ns).Get(ctx, name, metav1.GetOptions{})
+		if err == nil {
+			var replicas int32 = 1
 			if ss.Spec.Replicas != nil {
-				desiredReplicas = *ss.Spec.Replicas
+				replicas = *ss.Spec.Replicas
 			}
-			data.Overview.Status = fmt.Sprintf("%d/%d Ready", ss.Status.ReadyReplicas, desiredReplicas)
-			data.Overview.Age = formatAge(ss.CreationTimestamp)
+			data.Overview.Status = fmt.Sprintf("%d/%d Ready", ss.Status.ReadyReplicas, replicas)
+			data.Overview.Selector = metav1.FormatLabelSelector(ss.Spec.Selector)
 			data.Overview.ServiceName = ss.Spec.ServiceName
-			selector, selErr := metav1.LabelSelectorAsSelector(ss.Spec.Selector)
-			if selErr != nil {
-				data.ErrorLogs = append(data.ErrorLogs, fmt.Sprintf("Failed to build label selector: %v", selErr))
-			} else {
-				data.Overview.Selector = selector.String()
-				podList, podErr := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector.String()})
-				if podErr != nil {
-					data.ErrorLogs = append(data.ErrorLogs, fmt.Sprintf("Failed to list pods: %v", podErr))
-				} else {
-					for _, pod := range podList.Items {
-						readyCount := 0; for _, cs := range pod.Status.ContainerStatuses { if cs.Ready { readyCount++ } }
-						readyStr := fmt.Sprintf("%d/%d", readyCount, len(pod.Spec.Containers))
-						restartCount := 0; for _, cs := range pod.Status.ContainerStatuses { restartCount += int(cs.RestartCount) }
-						nodeName := pod.Spec.NodeName; if nodeName == "" { nodeName = "N/A" }
-						data.Pods = append(data.Pods, PodInfo{
-							Cluster:   clusterContextName,
-							Namespace: pod.Namespace,
-							Name:      pod.Name,
-							Ready:     readyStr,
-							Status:    string(pod.Status.Phase),
-							Reason:    getPodReason(pod),
-							Restarts:  restartCount,
-							Node:      nodeName,
-							PodIP:     pod.Status.PodIP,
-							QoS:       string(pod.Status.QOSClass),
-							Age:       formatAge(pod.CreationTimestamp),
-						})
-					}
-				}
-			}
-		}
-		fieldSelector := fmt.Sprintf("involvedObject.name=%s,involvedObject.namespace=%s", ssName, namespace)
-		eventList, err := clientset.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{FieldSelector: fieldSelector})
-		if err != nil {
-			data.ErrorLogs = append(data.ErrorLogs, fmt.Sprintf("Failed to get events: %v", err))
-		} else {
-			sort.Slice(eventList.Items, func(i, j int) bool {
-				return eventList.Items[i].LastTimestamp.Time.After(eventList.Items[j].LastTimestamp.Time)
-			})
-			for _, e := range eventList.Items {
-				data.Events = append(data.Events, EventInfo{
-					Type: e.Type, Reason: e.Reason, Message: e.Message,
-					Count: int(e.Count), LastSeen: formatAge(e.LastTimestamp),
+			data.Overview.Age = formatAge(ss.CreationTimestamp)
+
+			podList, _ := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: data.Overview.Selector})
+			for _, p := range podList.Items {
+				data.Pods = append(data.Pods, PodInfo{
+					Name: p.Name, Status: string(p.Status.Phase), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
 				})
 			}
 		}
+
+		events, _ := clientset.CoreV1().Events(ns).List(ctx, metav1.ListOptions{FieldSelector: "involvedObject.name=" + name})
+		for _, e := range events.Items {
+			data.Events = append(data.Events, EventInfo{
+				Type: e.Type, Reason: e.Reason, Message: e.Message, Count: int(e.Count), LastSeen: formatAge(e.LastTimestamp),
+			})
+		}
+
 		return c.Render(200, "statefulset-detail.html", data)
 	}
 }
