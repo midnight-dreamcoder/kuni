@@ -59,9 +59,16 @@ func LoadAllConfigs(pattern string) ([]ClusterConfig, error) {
 		if DB.Migrator().HasTable(&KubeConfig{}) {
 			if err := DB.Find(&dbConfigs).Error; err == nil {
 				for _, c := range dbConfigs {
+					// Parse the content to extract real Context Name
+					realContext := c.Name // Default to DB name
+					parsed, err := clientcmd.Load([]byte(c.Content))
+					if err == nil && parsed.CurrentContext != "" {
+						realContext = parsed.CurrentContext
+					}
+
 					configs = append(configs, ClusterConfig{
 						Name:        c.Name, 
-						ContextName: c.Name, 
+						ContextName: realContext, 
 						IsFile:      false,
 						Content:     []byte(c.Content),
 					})
@@ -91,7 +98,7 @@ func GetClusterConfig(pattern, contextName string) (*ClusterConfig, error) {
 			ctxName = raw.CurrentContext
 		}
 
-		if ctxName == contextName {
+		if ctxName == contextName || filepath.Base(f) == contextName {
 			return &ClusterConfig{
 				Name:        filepath.Base(f),
 				ContextName: ctxName,
@@ -102,7 +109,7 @@ func GetClusterConfig(pattern, contextName string) (*ClusterConfig, error) {
 	}
 
 	// [Optimization] Database check skipped for single-cluster lookups 
-	// as per requirement "no need to check cluster status at database".
+	// as per requirement to avoid N+1 DB queries during status checks.
 
 	return nil, fmt.Errorf("cluster config not found for context: %s", contextName)
 }

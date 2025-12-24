@@ -147,6 +147,11 @@ func main() {
 	e.POST("/users/add", handleAddUser())
 	e.POST("/users/delete", handleDeleteUser())
 
+	// CONFIG MANAGEMENT
+    e.GET("/kubeconfigs", handleGetKubeConfigs(pattern))
+    e.POST("/kubeconfigs/add", handleAddKubeConfig(pattern))
+    e.POST("/kubeconfigs/delete", handleDeleteKubeConfig(pattern))
+
     // APP ROUTES
 	e.GET("/", handleSearch(pattern))
 	e.GET("/overview", handleGetClusterOverview(pattern))

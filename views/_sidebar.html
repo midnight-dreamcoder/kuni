@@ -141,6 +141,9 @@
                 <li><a href="/users" {{ if eq .ActivePage "users" }}class="active"{{ end }}>
                     <span class="sidebar-icon">👥</span>Users
                 </a></li>
+                <li><a href="/kubeconfigs" {{ if eq .ActivePage "kubeconfigs" }}class="active"{{ end }}>
+                    <span class="sidebar-icon">⚙️</span>KubeConfigs
+                </a></li>
             </ul>
         </div>
         {{ end }}
