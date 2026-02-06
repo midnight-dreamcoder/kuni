@@ -23,7 +23,7 @@
         <div class="stats-container">
             
             <div class="stat-widget full-width">
-                <h3>Deployment Distribution by Namespace (Top 50)</h3>
+                <h3>Deployment Distribution by Namespace (Top 30) - Status Heatmap</h3>
                 <div class="treemap-container">
                     <canvas id="treemapChart"></canvas>
                 </div>
@@ -50,33 +50,6 @@
                             <span class="legend-color" style="background-color: {{ index $colors (mod $i 10) }};"></span>
                             {{ .Name }} ({{ .Count }})
                         </div>
-                        {{ end }}
-                    </div>
-                </div>
-            </div>
-            
-            <div class="stat-widget"> 
-                <h3>Deployments by Namespace (Top 10 + Others)</h3>
-                <div class="chart-container">
-                    <div class="stacked-bar-container">
-                        {{ $colors := ColorSlice }}
-                        
-                        {{ $totalNS := 0 }}
-                        {{ range .NamespaceBarStats }}{{ $totalNS = add $totalNS .Count }}{{ end }}
-
-                        {{ range $i, $stat := .NamespaceBarStats }}
-                            {{ $color := index $colors (mod $i 10) }}
-                            <div class="bar-segment" 
-                                 style="width: {{ printf "%.2f" (fdiv .Count $totalNS | mulf 100.0) }}%; background-color: {{ $color }}; box-shadow: 0 0 10px 0px {{ $color }};"
-                                 title="{{ .Name }}: {{ .Count }}"></div>
-                        {{ end }}
-                    </div>
-                    <div class="chart-legend">
-                        {{ range $i, $stat := .NamespaceBarStats }}
-                            <div class="legend-item">
-                                <span class="legend-color" style="background-color: {{ index $colors (mod $i 10) }};"></span>
-                                <span class="{{ if eq .Name "Others" }}bar-label-other{{ end }}">{{ .Name }}</span> ({{ .Count }})
-                            </div>
                         {{ end }}
                     </div>
                 </div>
@@ -190,10 +163,14 @@
                                 if (ctx.type !== 'data') return 'transparent';
                                 const item = ctx.raw;
                                 if (!item || !item._data) return '#374151';
+                                // Use the color from the raw data
+                                if (item._data.color) {
+                                    return item._data.color;
+                                }
+                                // Fallback for grouped items
                                 if (item._data.children && item._data.children.length > 0) {
                                     return item._data.children[0].color;
                                 }
-                                if (item._data.color) return item._data.color;
                                 return '#374151';
                             },
                             labels: {
@@ -210,6 +187,7 @@
                     },
                     options: {
                         maintainAspectRatio: false,
+                        aspectRatio: 10,
                         onClick: (e, activeElements) => {
                             if (activeElements.length === 0) return;
                             const raw = activeElements[0].element.$context.raw;

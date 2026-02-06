@@ -536,8 +536,28 @@ func handleGetNodes(pattern string) echo.HandlerFunc {
 		var allNodes []NodeInfo; cDist := make(map[string]int)
 		for _, res := range results { for _, n := range res.Items { allNodes = append(allNodes, n); cDist[res.ClusterName]++ } }
 		
+		// Calculate stats
+		statusDist := make(map[string]int)
+		schedDist := make(map[string]int)
+		for _, node := range allNodes {
+			statusDist[node.Status]++
+			schedDist[node.Schedulable]++
+		}
+		
+		var sStats []PodStatusStat
+		for k, v := range statusDist {
+			sStats = append(sStats, PodStatusStat{Status: k, Count: v})
+		}
+		sort.Slice(sStats, func(i, j int) bool { return sStats[i].Count > sStats[j].Count })
+
+		var schedStats []PodStatusStat
+		for k, v := range schedDist {
+			schedStats = append(schedStats, PodStatusStat{Status: k, Count: v})
+		}
+		sort.Slice(schedStats, func(i, j int) bool { return schedStats[i].Count > schedStats[j].Count })
+
 		var cStats []ClusterStat; for k, v := range cDist { cStats = append(cStats, ClusterStat{Name: k, Count: v}) }; sort.Slice(cStats, func(i, j int) bool { return cStats[i].Name < cStats[j].Name })
-		return c.Render(200, "nodes.html", NodePageData{PageBase: base, Nodes: allNodes, TotalNodes: len(allNodes), ClusterStats: cStats})
+		return c.Render(200, "nodes.html", NodePageData{PageBase: base, Nodes: allNodes, TotalNodes: len(allNodes), ClusterStats: cStats, StatusStats: sStats, SchedStats: schedStats})
 	}
 }
 

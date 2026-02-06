@@ -14,16 +14,13 @@ import (
 
 func handleGetDeployments(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		// UPDATED: Use GetBaseData for consistent Auth/View context
 		base := GetBaseData(c, "Deployments", "deployments")
 
-		// FIXED: configsToProcess
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding configs")
 		}
 
-		// FIXED: pass configsToProcess
 		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
 
@@ -32,6 +29,7 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 			Items       []AggregatedDeploymentView
 			ClusterStat ClusterStat
 			NSStats     map[string]int
+			NsNotReady  map[string]int // For health status
 		}
 
 		fetchDeployments := func(client KubeClient) (depResult, error) {
@@ -42,8 +40,12 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 				return depResult{}, err
 			}
 
-			var items []AggregatedDeploymentView
-			nsCount := make(map[string]int)
+			result := depResult{
+				ClusterName: client.ContextName,
+				ClusterStat: ClusterStat{Name: client.ContextName, Count: len(list.Items)},
+				NSStats:     make(map[string]int),
+				NsNotReady:  make(map[string]int),
+			}
 
 			for _, dep := range list.Items {
 				var images []string
@@ -54,7 +56,10 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 				if dep.Spec.Replicas != nil {
 					replicas = *dep.Spec.Replicas
 				}
-				items = append(items, AggregatedDeploymentView{
+				
+				isReady := dep.Status.ReadyReplicas == replicas
+				
+				result.Items = append(result.Items, AggregatedDeploymentView{
 					Name:                 dep.Name,
 					TotalReadyReplicas:   int(dep.Status.ReadyReplicas),
 					TotalDesiredReplicas: int(replicas),
@@ -63,29 +68,31 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 					Images:               images,
 					Strategies:           []string{string(dep.Spec.Strategy.Type)},
 				})
-				nsCount[dep.Namespace]++
+				result.NSStats[dep.Namespace]++
+				if !isReady {
+					result.NsNotReady[dep.Namespace]++
+				}
 			}
-			return depResult{
-				ClusterName: client.ContextName,
-				Items:       items,
-				ClusterStat: ClusterStat{Name: client.ContextName, Count: len(items)},
-				NSStats:     nsCount,
-			}, nil
+			return result, nil
 		}
 
 		results, fetchErrors := ParallelFetch(clients, fetchDeployments)
 		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
 
-		// Aggregation Logic (Unchanged)
 		globalDepMap := make(map[string]*AggregatedDeploymentView)
 		var clusterStats []ClusterStat
 		globalNSStats := make(map[string]int)
+		globalNsNotReadyStats := make(map[string]int)
 
 		for _, res := range results {
 			clusterStats = append(clusterStats, res.ClusterStat)
 			for ns, count := range res.NSStats {
 				globalNSStats[ns] += count
 			}
+			for ns, count := range res.NsNotReady {
+				globalNsNotReadyStats[ns] += count
+			}
+
 			for _, item := range res.Items {
 				if existing, ok := globalDepMap[item.Name]; ok {
 					existing.TotalReadyReplicas += item.TotalReadyReplicas
@@ -96,14 +103,12 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 					if !contains(existing.Namespaces, item.Namespaces[0]) {
 						existing.Namespaces = append(existing.Namespaces, item.Namespaces[0])
 					}
-					// Merge images/strategies simply
 					for _, img := range item.Images {
 						if !contains(existing.Images, img) {
 							existing.Images = append(existing.Images, img)
 						}
 					}
 				} else {
-					// Make a copy to avoid pointer issues with loop var
 					newItem := item
 					globalDepMap[item.Name] = &newItem
 				}
@@ -119,23 +124,38 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 
 		var nsStats []NamespaceStat
 		for k, v := range globalNSStats {
-			nsStats = append(nsStats, NamespaceStat{Name: k, Count: v})
+			notReadyCount := globalNsNotReadyStats[k]
+			color := "#10b981" // Green
+			errorDetail := ""
+			if notReadyCount > 0 {
+				color = "#ef4444" // Red
+				errorDetail = fmt.Sprintf("%d Not Ready", notReadyCount)
+			}
+			nsStats = append(nsStats, NamespaceStat{
+				Name: k, Count: v, Color: color, ErrorDetail: errorDetail,
+			})
 		}
 		sort.Slice(nsStats, func(i, j int) bool { return nsStats[i].Count > nsStats[j].Count })
+
+		// Create Top 30 for Treemap
+		var nsTreemapStats []NamespaceStat
+		if len(nsStats) > 30 {
+			nsTreemapStats = nsStats[:30]
+		} else {
+			nsTreemapStats = nsStats
+		}
 
 		data := DeploymentPageData{
 			PageBase:               base,
 			Deployments:            finalDeps,
 			TotalUniqueDeployments: len(finalDeps),
 			ClusterStats:           clusterStats,
-			NamespaceBarStats:      nsStats,
+			NamespaceStats:         nsTreemapStats,
 		}
 
 		return c.Render(200, "deployments.html", data)
 	}
-}
-
-// handleGetDeploymentDetail (Updated to use GetBaseData)
+}// handleGetDeploymentDetail (Updated to use GetBaseData)
 func handleGetDeploymentDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		name := c.QueryParam("name")

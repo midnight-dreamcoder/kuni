@@ -49,6 +49,7 @@ func handleGetNamespaces(pattern string) echo.HandlerFunc {
 
 		nsMap := make(map[string]*AggregatedNamespaceView)
 		clusterStats := make(map[string]int)
+		nsStatusStats := make(map[string]int)
 
 		for _, res := range results {
 			clusterStats[res.ClusterName] = len(res.Namespaces)
@@ -61,6 +62,7 @@ func handleGetNamespaces(pattern string) echo.HandlerFunc {
 				}
 				nsMap[name].Clusters = append(nsMap[name].Clusters, res.ClusterName)
 				nsMap[name].StatusCounts["Active"]++
+				nsStatusStats["Active"]++ // Aggregate status
 			}
 		}
 
@@ -76,13 +78,25 @@ func handleGetNamespaces(pattern string) echo.HandlerFunc {
 			clusterStatSlice = append(clusterStatSlice, ClusterStat{Name: k, Count: v})
 		}
 		sort.Slice(clusterStatSlice, func(i, j int) bool { return clusterStatSlice[i].Name < clusterStatSlice[j].Name })
+		
+		var nsStatusStatsSlice []PodStatusStat
+		for k, v := range nsStatusStats {
+			nsStatusStatsSlice = append(nsStatusStatsSlice, PodStatusStat{Status: k, Count: v})
+		}
+		sort.Slice(nsStatusStatsSlice, func(i, j int) bool { return nsStatusStatsSlice[i].Count > nsStatusStatsSlice[j].Count })
+		
+		totalInstances := 0
+		for _, stat := range clusterStatSlice {
+			totalInstances += stat.Count
+		}
 
 		data := NamespacePageData{
 			PageBase:              base,
 			Namespaces:            allNamespaces,
 			TotalUniqueNamespaces: len(allNamespaces),
 			ClusterStats:          clusterStatSlice,
-			TotalNamespaceInstances: len(results),
+			TotalNamespaceInstances: totalInstances,
+			NamespaceStatusStats: nsStatusStatsSlice,
 		}
 
 		return c.Render(200, "all-namespaces.html", data)

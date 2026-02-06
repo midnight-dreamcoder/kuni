@@ -120,7 +120,6 @@ type DeploymentPageData struct {
 	TotalUniqueDeployments int
 	ClusterStats           []ClusterStat
 	NamespaceStats         []NamespaceStat
-	NamespaceBarStats      []NamespaceStat
 }
 
 // PodInfo holds the data for one pod

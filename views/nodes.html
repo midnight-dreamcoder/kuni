@@ -76,7 +76,7 @@
                     <div class="chart-legend">
                         {{ range .SchedStats }}
                         <div class="legend-item">
-                            <span class="legend-color sched-{{ .Status | ToLower }}" style="background-color: {{ if eq (.Status | ToLower) "enabled" }}#10b981{{ else }}#f59e0b{{ end }};"></span>
+                            <span class="legend-color sched-{{ .Status | ToLower }}"></span>
                             {{ .Status }} ({{ .Count }})
                         </div>
                         {{ end }}
