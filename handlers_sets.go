@@ -69,7 +69,7 @@ func handleGetReplicaSets(pattern string) echo.HandlerFunc {
 				NSCount:     nsCount,
 			}, nil
 		}
-		
+
 		results, fetchErrors := ParallelFetch(clients, fetchRS)
 		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
 
@@ -84,19 +84,19 @@ func handleGetReplicaSets(pattern string) echo.HandlerFunc {
 				gNS[n] += c
 			}
 		}
-		
+
 		var nsStats []NamespaceStat
 		for n, c := range gNS {
 			nsStats = append(nsStats, NamespaceStat{Name: n, Count: c})
 		}
 		sort.Slice(nsStats, func(i, j int) bool { return nsStats[i].Count > nsStats[j].Count })
-		
+
 		return c.Render(200, "replicasets.html", ReplicaSetPageData{
-			PageBase:       base,
-			ReplicaSets:    allRS,
+			PageBase:         base,
+			ReplicaSets:      allRS,
 			TotalReplicaSets: len(allRS),
-			ClusterStats:   cStats,
-			NamespaceStats: nsStats,
+			ClusterStats:     cStats,
+			NamespaceStats:   nsStats,
 		})
 	}
 }
@@ -146,7 +146,7 @@ func handleGetReplicaSetDetail(pattern string) echo.HandlerFunc {
 			podList, _ := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: data.Selector})
 			for _, p := range podList.Items {
 				data.Pods = append(data.Pods, PodInfo{
-					Name: p.Name, Status: string(p.Status.Phase), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
+					Cluster: cluster, Namespace: ns, Name: p.Name, Status: string(p.Status.Phase), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
 				})
 			}
 		}
@@ -175,10 +175,10 @@ func handleGetDaemonSets(pattern string) echo.HandlerFunc {
 		if err != nil {
 			return c.String(500, "Error finding configs")
 		}
-		
+
 		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
-		
+
 		type dsResult struct {
 			ClusterName string
 			Items       []DaemonSetInfo
@@ -219,12 +219,12 @@ func handleGetDaemonSets(pattern string) echo.HandlerFunc {
 			allDS = append(allDS, res.Items...)
 			cStats = append(cStats, res.Stat)
 		}
-		
+
 		return c.Render(200, "daemonsets.html", DaemonSetPageData{
-			PageBase:       base,
-			DaemonSets:     allDS,
+			PageBase:        base,
+			DaemonSets:      allDS,
 			TotalDaemonSets: len(allDS),
-			ClusterStats:   cStats,
+			ClusterStats:    cStats,
 		})
 	}
 }
@@ -259,12 +259,12 @@ func handleGetDaemonSetDetail(pattern string) echo.HandlerFunc {
 			data.Overview.Status = fmt.Sprintf("%d Desired, %d Ready", ds.Status.DesiredNumberScheduled, ds.Status.NumberReady)
 			data.Overview.Selector = metav1.FormatLabelSelector(ds.Spec.Selector)
 			data.Overview.Age = formatAge(ds.CreationTimestamp)
-			
+
 			// Fetch Pods
 			podList, _ := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: data.Overview.Selector})
 			for _, p := range podList.Items {
 				data.Pods = append(data.Pods, PodInfo{
-					Name: p.Name, Status: string(p.Status.Phase), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
+					Cluster: cluster, Namespace: ns, Name: p.Name, Status: string(p.Status.Phase), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
 				})
 			}
 		}
@@ -295,7 +295,7 @@ func handleGetStatefulSets(pattern string) echo.HandlerFunc {
 
 		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
-		
+
 		type ssResult struct {
 			ClusterName string
 			Items       []StatefulSetInfo
@@ -340,12 +340,12 @@ func handleGetStatefulSets(pattern string) echo.HandlerFunc {
 			allSS = append(allSS, res.Items...)
 			cStats = append(cStats, res.Stat)
 		}
-		
+
 		return c.Render(200, "statefulsets.html", StatefulSetPageData{
-			PageBase:        base,
-			StatefulSets:    allSS,
+			PageBase:          base,
+			StatefulSets:      allSS,
 			TotalStatefulSets: len(allSS),
-			ClusterStats:    cStats,
+			ClusterStats:      cStats,
 		})
 	}
 }
@@ -389,7 +389,7 @@ func handleGetStatefulSetDetail(pattern string) echo.HandlerFunc {
 			podList, _ := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: data.Overview.Selector})
 			for _, p := range podList.Items {
 				data.Pods = append(data.Pods, PodInfo{
-					Name: p.Name, Status: string(p.Status.Phase), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
+					Cluster: cluster, Namespace: ns, Name: p.Name, Status: string(p.Status.Phase), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
 				})
 			}
 		}

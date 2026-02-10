@@ -56,9 +56,9 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 				if dep.Spec.Replicas != nil {
 					replicas = *dep.Spec.Replicas
 				}
-				
+
 				isReady := dep.Status.ReadyReplicas == replicas
-				
+
 				result.Items = append(result.Items, AggregatedDeploymentView{
 					Name:                 dep.Name,
 					TotalReadyReplicas:   int(dep.Status.ReadyReplicas),
@@ -155,7 +155,7 @@ func handleGetDeployments(pattern string) echo.HandlerFunc {
 
 		return c.Render(200, "deployments.html", data)
 	}
-}// handleGetDeploymentDetail (Updated to use GetBaseData)
+} // handleGetDeploymentDetail (Updated to use GetBaseData)
 func handleGetDeploymentDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		name := c.QueryParam("name")
@@ -217,9 +217,15 @@ func handleGetDeploymentDetail(pattern string) echo.HandlerFunc {
 					for _, p := range podList.Items {
 						reason := getPodReason(p)
 						pods = append(pods, PodInfo{
-							Name: p.Name, Status: string(p.Status.Phase),
-							Ready: fmt.Sprintf("%d/%d", countReadyContainers(p.Status.ContainerStatuses), len(p.Spec.Containers)),
-							PodIP: p.Status.PodIP, Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp), Reason: reason,
+							Cluster:   client.ContextName,
+							Namespace: p.Namespace,
+							Name:      p.Name,
+							Status:    string(p.Status.Phase),
+							Ready:     fmt.Sprintf("%d/%d", countReadyContainers(p.Status.ContainerStatuses), len(p.Spec.Containers)),
+							PodIP:     p.Status.PodIP,
+							Node:      p.Spec.NodeName,
+							Age:       formatAge(p.CreationTimestamp),
+							Reason:    reason,
 						})
 					}
 
