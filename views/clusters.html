@@ -70,9 +70,9 @@
                     </thead>
                     <tbody>
                         {{ range .Clusters }}
-                        <tr class="cluster-row {{ if index $.SelectedClusters .ConfigName }}row-selected{{ end }}" data-cluster-name="{{ .Name }}">
+                        <tr class="cluster-row {{ if index $.SelectedClusters .Name }}row-selected{{ end }}" data-cluster-name="{{ .Name }}">
                             <td class="checkbox-col">
-                                <input type="checkbox" name="c" value="{{ .ConfigName }}" {{ if index $.SelectedClusters .ConfigName }}checked{{ end }}>
+                                <input type="checkbox" name="c" value="{{ .Name }}" {{ if index $.SelectedClusters .Name }}checked{{ end }}>
                             </td>
                             <td>
                                 <a href="{{ MakeURL $.QueryString "/cluster/detail" "cluster_name" .Name }}" class="deployment-link">

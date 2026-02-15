@@ -93,46 +93,104 @@
         </div>
 
         <div class="search-container" style="margin-top: 2rem;">
-            <input type="text" id="searchInput" onkeyup="filterTable('searchInput', 'workloadTable')" placeholder="Filter resources...">
+            <input type="text" id="searchInput" onkeyup="filterTable('searchInput', 'deploymentTable'); filterTable('searchInput', 'daemonsetTable'); filterTable('searchInput', 'statefulsetTable'); filterTable('searchInput', 'replicasetTable')" placeholder="Filter resources...">
         </div>
 
-        {{ if or .AllDeployments .AllDaemonSets .AllStatefulSets }}
+        {{ if .AllDeployments }}
         <div class="container">
-            <h2>Workloads</h2>
-            <table id="workloadTable">
+            <h2>Deployments</h2>
+            <table id="deploymentTable">
                 <thead>
                     <tr>
                         <th class="sortable-header" data-sort-type="string">Cluster</th>
-                        <th class="sortable-header" data-sort-type="string">Kind</th>
                         <th class="sortable-header" data-sort-type="string">Name</th>
-                        <th>Ready</th>
-                        <th>Age</th>
+                        <th class="sortable-header" data-sort-type="string">Ready</th>
+                        <th class="sortable-header" data-sort-type="duration">Age</th>
                     </tr>
                 </thead>
                 <tbody>
                     {{ range .AllDeployments }}
                     <tr>
                         <td class="cluster-name">{{ .Cluster }}</td>
-                        <td><span class="strategy-tag">Deploy</span></td>
                         <td><a href="{{ MakeURL $.QueryString "/deployment/detail" "name" .Name }}" class="deployment-link">{{ .Name }}</a></td>
                         <td>{{ .Ready }}</td>
                         <td>{{ .Age }}</td>
                     </tr>
                     {{ end }}
+                </tbody>
+            </table>
+        </div>
+        {{ end }}
+
+        {{ if .AllDaemonSets }}
+        <div class="container">
+            <h2>DaemonSets</h2>
+            <table id="daemonsetTable">
+                <thead>
+                    <tr>
+                        <th class="sortable-header" data-sort-type="string">Cluster</th>
+                        <th class="sortable-header" data-sort-type="string">Name</th>
+                        <th class="sortable-header" data-sort-type="string">Ready</th>
+                        <th class="sortable-header" data-sort-type="duration">Age</th>
+                    </tr>
+                </thead>
+                <tbody>
                     {{ range .AllDaemonSets }}
                     <tr>
                         <td class="cluster-name">{{ .Cluster }}</td>
-                        <td><span class="strategy-tag" style="color: #f59e0b; background: rgba(245, 158, 11, 0.1);">DS</span></td>
                         <td><a href="{{ MakeURL $.QueryString "/daemonset/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
                         <td>{{ .Ready }}</td>
                         <td>{{ .Age }}</td>
                     </tr>
                     {{ end }}
+                </tbody>
+            </table>
+        </div>
+        {{ end }}
+
+        {{ if .AllStatefulSets }}
+        <div class="container">
+            <h2>StatefulSets</h2>
+            <table id="statefulsetTable">
+                <thead>
+                    <tr>
+                        <th class="sortable-header" data-sort-type="string">Cluster</th>
+                        <th class="sortable-header" data-sort-type="string">Name</th>
+                        <th class="sortable-header" data-sort-type="string">Ready</th>
+                        <th class="sortable-header" data-sort-type="duration">Age</th>
+                    </tr>
+                </thead>
+                <tbody>
                     {{ range .AllStatefulSets }}
                     <tr>
                         <td class="cluster-name">{{ .Cluster }}</td>
-                        <td><span class="strategy-tag" style="color: #3b82f6; background: rgba(59, 130, 246, 0.1);">STS</span></td>
                         <td><a href="{{ MakeURL $.QueryString "/statefulset/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
+                        <td>{{ .Ready }}</td>
+                        <td>{{ .Age }}</td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+        </div>
+        {{ end }}
+
+        {{ if .AllReplicaSets }}
+        <div class="container">
+            <h2>ReplicaSets</h2>
+            <table id="replicasetTable">
+                <thead>
+                    <tr>
+                        <th class="sortable-header" data-sort-type="string">Cluster</th>
+                        <th class="sortable-header" data-sort-type="string">Name</th>
+                        <th class="sortable-header" data-sort-type="string">Ready</th>
+                        <th class="sortable-header" data-sort-type="duration">Age</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ range .AllReplicaSets }}
+                    <tr>
+                        <td class="cluster-name">{{ .Cluster }}</td>
+                        <td><a href="{{ MakeURL $.QueryString "/replicaset/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
                         <td>{{ .Ready }}</td>
                         <td>{{ .Age }}</td>
                     </tr>
@@ -150,11 +208,12 @@
                     <tr>
                         <th class="sortable-header" data-sort-type="string">Cluster</th>
                         <th class="sortable-header" data-sort-type="string">Name</th>
-                        <th>Ready</th>
-                        <th>Status</th>
-                        <th>Restarts</th>
-                        <th>Node</th>
-                        <th>IP</th>
+                        <th class="sortable-header" data-sort-type="string">Ready</th>
+                        <th class="sortable-header" data-sort-type="string">Status</th>
+                        <th class="sortable-header" data-sort-type="number">Restarts</th>
+                        <th class="sortable-header" data-sort-type="string">Node</th>
+                        <th class="sortable-header" data-sort-type="string">IP</th>
+                        <th class="sortable-header" data-sort-type="duration">Age</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -167,6 +226,7 @@
                         <td>{{ .Restarts }}</td>
                         <td><a href="{{ MakeURL $.QueryString "/node/detail" "name" .Node "cluster_name" .Cluster }}" class="deployment-link">{{ .Node }}</a></td>
                         <td>{{ .PodIP }}</td>
+                        <td>{{ .Age }}</td>
                     </tr>
                     {{ end }}
                 </tbody>
@@ -180,11 +240,11 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Cluster</th>
-                        <th>Kind</th>
-                        <th>Name</th>
-                        <th>Info</th>
-                        <th>Age</th>
+                        <th class="sortable-header" data-sort-type="string">Cluster</th>
+                        <th class="sortable-header" data-sort-type="string">Kind</th>
+                        <th class="sortable-header" data-sort-type="string">Name</th>
+                        <th class="sortable-header" data-sort-type="string">Info</th>
+                        <th class="sortable-header" data-sort-type="duration">Age</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -217,11 +277,11 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Cluster</th>
-                        <th>Kind</th>
-                        <th>Name</th>
-                        <th>Details</th>
-                        <th>Age</th>
+                        <th class="sortable-header" data-sort-type="string">Cluster</th>
+                        <th class="sortable-header" data-sort-type="string">Kind</th>
+                        <th class="sortable-header" data-sort-type="string">Name</th>
+                        <th class="sortable-header" data-sort-type="string">Details</th>
+                        <th class="sortable-header" data-sort-type="duration">Age</th>
                     </tr>
                 </thead>
                 <tbody>

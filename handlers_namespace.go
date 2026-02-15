@@ -29,7 +29,7 @@ func handleGetNamespaces(pattern string) echo.HandlerFunc {
 			ClusterName string
 			Namespaces  []string
 		}
-		
+
 		fetchNS := func(client KubeClient) (nsFetchResult, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -78,25 +78,25 @@ func handleGetNamespaces(pattern string) echo.HandlerFunc {
 			clusterStatSlice = append(clusterStatSlice, ClusterStat{Name: k, Count: v})
 		}
 		sort.Slice(clusterStatSlice, func(i, j int) bool { return clusterStatSlice[i].Name < clusterStatSlice[j].Name })
-		
+
 		var nsStatusStatsSlice []PodStatusStat
 		for k, v := range nsStatusStats {
 			nsStatusStatsSlice = append(nsStatusStatsSlice, PodStatusStat{Status: k, Count: v})
 		}
 		sort.Slice(nsStatusStatsSlice, func(i, j int) bool { return nsStatusStatsSlice[i].Count > nsStatusStatsSlice[j].Count })
-		
+
 		totalInstances := 0
 		for _, stat := range clusterStatSlice {
 			totalInstances += stat.Count
 		}
 
 		data := NamespacePageData{
-			PageBase:              base,
-			Namespaces:            allNamespaces,
-			TotalUniqueNamespaces: len(allNamespaces),
-			ClusterStats:          clusterStatSlice,
+			PageBase:                base,
+			Namespaces:              allNamespaces,
+			TotalUniqueNamespaces:   len(allNamespaces),
+			ClusterStats:            clusterStatSlice,
 			TotalNamespaceInstances: totalInstances,
-			NamespaceStatusStats: nsStatusStatsSlice,
+			NamespaceStatusStats:    nsStatusStatsSlice,
 		}
 
 		return c.Render(200, "all-namespaces.html", data)
@@ -141,9 +141,15 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 					view.PodCount = len(list.Items)
 					for _, item := range list.Items {
 						readyCount := 0
-						for _, cs := range item.Status.ContainerStatuses { if cs.Ready { readyCount++ } }
+						for _, cs := range item.Status.ContainerStatuses {
+							if cs.Ready {
+								readyCount++
+							}
+						}
 						restartCount := 0
-						for _, cs := range item.Status.ContainerStatuses { restartCount += int(cs.RestartCount) }
+						for _, cs := range item.Status.ContainerStatuses {
+							restartCount += int(cs.RestartCount)
+						}
 						view.Pods = append(view.Pods, PodInfo{
 							Name: item.Name, Ready: fmt.Sprintf("%d/%d", readyCount, len(item.Spec.Containers)),
 							Status: string(item.Status.Phase), Restarts: restartCount, Node: item.Spec.NodeName,
@@ -161,13 +167,17 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 					view.DeploymentCount = len(list.Items)
 					for _, item := range list.Items {
 						var images []string
-						for _, c := range item.Spec.Template.Spec.Containers { images = append(images, c.Image) }
+						for _, c := range item.Spec.Template.Spec.Containers {
+							images = append(images, c.Image)
+						}
 						desired := int32(1)
-						if item.Spec.Replicas != nil { desired = *item.Spec.Replicas }
+						if item.Spec.Replicas != nil {
+							desired = *item.Spec.Replicas
+						}
 						view.Deployments = append(view.Deployments, SimpleDeploymentInfo{
 							Cluster: client.ContextName,
-							Name: item.Name, Age: formatAge(item.CreationTimestamp),
-							Ready: fmt.Sprintf("%d/%d", item.Status.ReadyReplicas, desired),
+							Name:    item.Name, Age: formatAge(item.CreationTimestamp),
+							Ready:    fmt.Sprintf("%d/%d", item.Status.ReadyReplicas, desired),
 							Strategy: string(item.Spec.Strategy.Type), Images: images,
 						})
 					}
@@ -181,9 +191,13 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 					view.ReplicaSetCount = len(list.Items)
 					for _, item := range list.Items {
 						owner := "None"
-						if len(item.OwnerReferences) > 0 { owner = item.OwnerReferences[0].Name }
+						if len(item.OwnerReferences) > 0 {
+							owner = item.OwnerReferences[0].Name
+						}
 						desired := int32(1)
-						if item.Spec.Replicas != nil { desired = *item.Spec.Replicas }
+						if item.Spec.Replicas != nil {
+							desired = *item.Spec.Replicas
+						}
 						view.ReplicaSets = append(view.ReplicaSets, ReplicaSetInfo{
 							Cluster: client.ContextName, Namespace: nsName,
 							Name: item.Name, Owner: owner, Age: formatAge(item.CreationTimestamp),
@@ -215,7 +229,9 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 					view.StatefulSetCount = len(list.Items)
 					for _, item := range list.Items {
 						desired := int32(1)
-						if item.Spec.Replicas != nil { desired = *item.Spec.Replicas }
+						if item.Spec.Replicas != nil {
+							desired = *item.Spec.Replicas
+						}
 						view.StatefulSets = append(view.StatefulSets, StatefulSetInfo{
 							Cluster: client.ContextName, Namespace: nsName,
 							Name: item.Name, Age: formatAge(item.CreationTimestamp),
@@ -232,7 +248,9 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 					view.ServiceCount = len(list.Items)
 					for _, item := range list.Items {
 						ext := ""
-						if len(item.Status.LoadBalancer.Ingress) > 0 { ext = item.Status.LoadBalancer.Ingress[0].IP }
+						if len(item.Status.LoadBalancer.Ingress) > 0 {
+							ext = item.Status.LoadBalancer.Ingress[0].IP
+						}
 						view.Services = append(view.Services, ServiceInfo{
 							Name: item.Name, Type: string(item.Spec.Type), ClusterIP: item.Spec.ClusterIP,
 							ExternalIP: ext, Age: formatAge(item.CreationTimestamp),
@@ -249,9 +267,13 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 					view.IngressCount = len(list.Items)
 					for _, item := range list.Items {
 						hosts := ""
-						for _, r := range item.Spec.Rules { hosts += r.Host + " " }
+						for _, r := range item.Spec.Rules {
+							hosts += r.Host + " "
+						}
 						addr := ""
-						if len(item.Status.LoadBalancer.Ingress) > 0 { addr = item.Status.LoadBalancer.Ingress[0].IP }
+						if len(item.Status.LoadBalancer.Ingress) > 0 {
+							addr = item.Status.LoadBalancer.Ingress[0].IP
+						}
 						view.Ingresses = append(view.Ingresses, IngressInfo{
 							Name: item.Name, Hosts: hosts, Address: addr, Age: formatAge(item.CreationTimestamp),
 							Cluster: client.ContextName, Namespace: nsName,
@@ -292,13 +314,13 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 			}()
 
 			wg.Wait()
-			
+
 			evList, _ := client.Clientset.CoreV1().Events(nsName).List(ctx, metav1.ListOptions{Limit: 50})
 			if evList != nil {
 				for _, e := range evList.Items {
 					view.Events = append(view.Events, EventInfo{
-						Cluster: client.ContextName, 
-						Type: e.Type, Reason: e.Reason, Message: e.Message, Count: int(e.Count),
+						Cluster: client.ContextName,
+						Type:    e.Type, Reason: e.Reason, Message: e.Message, Count: int(e.Count),
 						LastSeen: formatAge(e.LastTimestamp), Object: e.InvolvedObject.Kind + "/" + e.InvolvedObject.Name,
 					})
 				}
@@ -313,7 +335,7 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 		globalStats := NamespaceGlobalStats{
 			PodStatus: make(map[string]int),
 		}
-		
+
 		data := NamespaceDetailPageData{
 			PageBase:      base,
 			NamespaceName: nsName,
@@ -324,8 +346,8 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 
 		// --- AGGREGATION ---
 		for _, res := range results {
-			if res.PodCount == 0 && res.DeploymentCount == 0 && res.ServiceCount == 0 && res.ConfigMapCount == 0 {
-				continue 
+			if res.PodCount == 0 && res.DeploymentCount == 0 && res.ReplicaSetCount == 0 && res.DaemonSetCount == 0 && res.StatefulSetCount == 0 && res.ServiceCount == 0 && res.IngressCount == 0 && res.ConfigMapCount == 0 && res.SecretCount == 0 {
+				continue
 			}
 			clusterNames = append(clusterNames, res.ClusterName)
 
@@ -346,9 +368,11 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 			for _, d := range res.Deployments {
 				var r, t int
 				fmt.Sscanf(d.Ready, "%d/%d", &r, &t)
-				if r == t && t > 0 { globalStats.DeploymentReady++ }
+				if r == t && t > 0 {
+					globalStats.DeploymentReady++
+				}
 			}
-			
+
 			// 2. Append Lists
 			data.AllPods = append(data.AllPods, res.Pods...)
 			data.AllDeployments = append(data.AllDeployments, res.Deployments...)
@@ -361,15 +385,37 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 			data.AllSecrets = append(data.AllSecrets, res.Secrets...)
 			data.AllEvents = append(data.AllEvents, res.Events...)
 		}
-		
+
 		// Sort the lists for display
-		sort.Slice(data.AllPods, func(i, j int) bool { 
-			if data.AllPods[i].Cluster != data.AllPods[j].Cluster { return data.AllPods[i].Cluster < data.AllPods[j].Cluster }
-			return data.AllPods[i].Name < data.AllPods[j].Name 
+		sort.Slice(data.AllPods, func(i, j int) bool {
+			if data.AllPods[i].Cluster != data.AllPods[j].Cluster {
+				return data.AllPods[i].Cluster < data.AllPods[j].Cluster
+			}
+			return data.AllPods[i].Name < data.AllPods[j].Name
 		})
-		sort.Slice(data.AllDeployments, func(i, j int) bool { 
-			if data.AllDeployments[i].Cluster != data.AllDeployments[j].Cluster { return data.AllDeployments[i].Cluster < data.AllDeployments[j].Cluster }
-			return data.AllDeployments[i].Name < data.AllDeployments[j].Name 
+		sort.Slice(data.AllDeployments, func(i, j int) bool {
+			if data.AllDeployments[i].Cluster != data.AllDeployments[j].Cluster {
+				return data.AllDeployments[i].Cluster < data.AllDeployments[j].Cluster
+			}
+			return data.AllDeployments[i].Name < data.AllDeployments[j].Name
+		})
+		sort.Slice(data.AllReplicaSets, func(i, j int) bool {
+			if data.AllReplicaSets[i].Cluster != data.AllReplicaSets[j].Cluster {
+				return data.AllReplicaSets[i].Cluster < data.AllReplicaSets[j].Cluster
+			}
+			return data.AllReplicaSets[i].Name < data.AllReplicaSets[j].Name
+		})
+		sort.Slice(data.AllDaemonSets, func(i, j int) bool {
+			if data.AllDaemonSets[i].Cluster != data.AllDaemonSets[j].Cluster {
+				return data.AllDaemonSets[i].Cluster < data.AllDaemonSets[j].Cluster
+			}
+			return data.AllDaemonSets[i].Name < data.AllDaemonSets[j].Name
+		})
+		sort.Slice(data.AllStatefulSets, func(i, j int) bool {
+			if data.AllStatefulSets[i].Cluster != data.AllStatefulSets[j].Cluster {
+				return data.AllStatefulSets[i].Cluster < data.AllStatefulSets[j].Cluster
+			}
+			return data.AllStatefulSets[i].Name < data.AllStatefulSets[j].Name
 		})
 
 		sort.Strings(clusterNames)

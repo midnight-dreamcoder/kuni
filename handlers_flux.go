@@ -31,7 +31,7 @@ func handleGetFlux(pattern string) echo.HandlerFunc {
 		// though base.SelectedClusters is usually enough for the View)
 		selectedMap := make(map[string]bool)
 		for _, cfg := range configs {
-			selectedMap[cfg.Name] = true
+			selectedMap[cfg.ContextName] = true
 		}
 
 		gvrGit := schema.GroupVersionResource{Group: "source.toolkit.fluxcd.io", Version: "v1", Resource: "gitrepositories"}
@@ -50,14 +50,18 @@ func handleGetFlux(pattern string) echo.HandlerFunc {
 
 				// Build Dynamic Client from Abstract Config
 				restConfig, err := config.ToRestConfig()
-				if err != nil { return }
-				
+				if err != nil {
+					return
+				}
+
 				restConfig.QPS = 20
 				restConfig.Burst = 50
-				
+
 				dynClient, err := dynamic.NewForConfig(restConfig)
-				if err != nil { return }
-				
+				if err != nil {
+					return
+				}
+
 				clusterDisplayName := config.ContextName
 
 				// Fetch Helper
@@ -66,24 +70,28 @@ func handleGetFlux(pattern string) echo.HandlerFunc {
 					defer cancel()
 
 					list, err := dynClient.Resource(gvr).Namespace("").List(ctx, metav1.ListOptions{})
-					if err != nil { return }
+					if err != nil {
+						return
+					}
 
 					for _, item := range list.Items {
 						name := item.GetName()
 						ns := item.GetNamespace()
 						creation := item.GetCreationTimestamp().Time
-						
+
 						statusMap, found, _ := unstructured.NestedMap(item.Object, "status")
 						statusStr := "Unknown"
 						message := ""
 						revision := ""
-						
+
 						if found {
 							conditions, foundCond, _ := unstructured.NestedSlice(statusMap, "conditions")
 							if foundCond {
 								for _, cond := range conditions {
 									cMap, ok := cond.(map[string]interface{})
-									if !ok { continue }
+									if !ok {
+										continue
+									}
 									if cMap["type"] == "Ready" {
 										if cMap["status"] == "True" {
 											statusStr = "Ready"
@@ -109,14 +117,14 @@ func handleGetFlux(pattern string) echo.HandlerFunc {
 						}
 
 						res := FluxResource{
-							Cluster:     clusterDisplayName,
-							Namespace:   ns,
-							Name:        name,
-							Type:        typeLabel,
-							Status:      statusStr,
-							Message:     message,
-							Revision:    revision,
-							Age:         formatAge(metav1.NewTime(creation)),
+							Cluster:   clusterDisplayName,
+							Namespace: ns,
+							Name:      name,
+							Type:      typeLabel,
+							Status:    statusStr,
+							Message:   message,
+							Revision:  revision,
+							Age:       formatAge(metav1.NewTime(creation)),
 						}
 
 						mutex.Lock()
@@ -135,8 +143,12 @@ func handleGetFlux(pattern string) echo.HandlerFunc {
 		wg.Wait()
 
 		sort.Slice(allResources, func(i, j int) bool {
-			if allResources[i].Status == "Failed" && allResources[j].Status != "Failed" { return true }
-			if allResources[i].Status != "Failed" && allResources[j].Status == "Failed" { return false }
+			if allResources[i].Status == "Failed" && allResources[j].Status != "Failed" {
+				return true
+			}
+			if allResources[i].Status != "Failed" && allResources[j].Status == "Failed" {
+				return false
+			}
 			return allResources[i].Cluster < allResources[j].Cluster
 		})
 

@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/duration"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	metrics "k8s.io/metrics/pkg/client/clientset/versioned"
@@ -30,10 +30,10 @@ func ParallelFetch[T any](clients []KubeClient, fetchFn func(KubeClient) (T, err
 		go func(c KubeClient) {
 			defer wg.Done()
 			res, err := fetchFn(c)
-			
+
 			mutex.Lock()
 			defer mutex.Unlock()
-			
+
 			if err != nil {
 				errors = append(errors, fmt.Sprintf("Cluster: %s | Error: %v", c.ContextName, err))
 			} else {
@@ -116,8 +116,8 @@ func getConfigsToProcess(c echo.Context, pattern string) ([]ClusterConfig, error
 
 	var filtered []ClusterConfig
 	for _, cfg := range allConfigs {
-		// FIXED: Match against 'Name' (Filename/ID), not 'ContextName'
-		if allowedSet[cfg.Name] { 
+		// UPDATED: Match against 'ContextName' for granular selection
+		if allowedSet[cfg.ContextName] {
 			filtered = append(filtered, cfg)
 		}
 	}
@@ -128,7 +128,7 @@ func getConfigsToProcess(c echo.Context, pattern string) ([]ClusterConfig, error
 func createClients(configs []ClusterConfig) ([]KubeClient, []string) {
 	var clients []KubeClient
 	var errors []string
-	
+
 	for _, cfg := range configs {
 		restConfig, err := cfg.ToRestConfig()
 		if err != nil {
@@ -141,7 +141,7 @@ func createClients(configs []ClusterConfig) ([]KubeClient, []string) {
 			errors = append(errors, fmt.Sprintf("Cluster: %s | Error: Failed to create clientset (%v)", cfg.Name, err))
 			continue
 		}
-		
+
 		pathStr := "DB"
 		if cfg.IsFile {
 			pathStr = cfg.Path
@@ -197,7 +197,7 @@ func findClient(pattern string, clusterContextName string) (*kubernetes.Clientse
 	if err != nil {
 		return nil, err
 	}
-	
+
 	restConfig, err := cfg.ToRestConfig()
 	if err != nil {
 		return nil, fmt.Errorf("error building config for %s: %v", clusterContextName, err)
@@ -227,7 +227,7 @@ func findConfigWithTimeout(pattern string, clusterContextName string, timeout ti
 	if err != nil {
 		return nil, err
 	}
-	
+
 	restConfig, err := cfg.ToRestConfig()
 	if err != nil {
 		return nil, err
@@ -263,16 +263,18 @@ func searchNamespaces(re *regexp.Regexp, clients []KubeClient, results chan<- Se
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			nsList, err := client.Clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil { return }
+			if err != nil {
+				return
+			}
 			for _, ns := range nsList.Items {
 				if re.MatchString(ns.Name) {
 					results <- SearchResult{
-						Type:      "Namespace",
-						Name:      ns.Name,
-						Cluster:   client.ContextName,
-						URL:       fmt.Sprintf("/namespace/detail?name=%s", url.QueryEscape(ns.Name)),
-						Status:    string(ns.Status.Phase),
-						Matches:   []MatchInfo{{Field: "Name", Value: ns.Name}},
+						Type:    "Namespace",
+						Name:    ns.Name,
+						Cluster: client.ContextName,
+						URL:     fmt.Sprintf("/namespace/detail?name=%s", url.QueryEscape(ns.Name)),
+						Status:  string(ns.Status.Phase),
+						Matches: []MatchInfo{{Field: "Name", Value: ns.Name}},
 					}
 				}
 			}
@@ -291,7 +293,9 @@ func searchDeployments(re *regexp.Regexp, clients []KubeClient, results chan<- S
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			depList, err := client.Clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil { return }
+			if err != nil {
+				return
+			}
 			for _, dep := range depList.Items {
 				var matches []MatchInfo
 				if re.MatchString(dep.Name) {
@@ -304,7 +308,9 @@ func searchDeployments(re *regexp.Regexp, clients []KubeClient, results chan<- S
 				}
 				if len(matches) > 0 {
 					var desiredReplicas int32 = 1
-					if dep.Spec.Replicas != nil { desiredReplicas = *dep.Spec.Replicas }
+					if dep.Spec.Replicas != nil {
+						desiredReplicas = *dep.Spec.Replicas
+					}
 					readyStr := fmt.Sprintf("%d/%d Ready", dep.Status.ReadyReplicas, desiredReplicas)
 					results <- SearchResult{
 						Type:      "Deployment",
@@ -332,7 +338,9 @@ func searchPods(re *regexp.Regexp, clients []KubeClient, results chan<- SearchRe
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			podList, err := client.Clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil { return }
+			if err != nil {
+				return
+			}
 			for _, pod := range podList.Items {
 				var matches []MatchInfo
 				if re.MatchString(pod.Name) {
@@ -343,7 +351,9 @@ func searchPods(re *regexp.Regexp, clients []KubeClient, results chan<- SearchRe
 				}
 				if len(matches) > 0 {
 					restartCount := 0
-					for _, cs := range pod.Status.ContainerStatuses { restartCount += int(cs.RestartCount) }
+					for _, cs := range pod.Status.ContainerStatuses {
+						restartCount += int(cs.RestartCount)
+					}
 					restartStr := fmt.Sprintf("%d Restarts", restartCount)
 					results <- SearchResult{
 						Type:      "Pod",
@@ -373,20 +383,24 @@ func searchReplicaSets(re *regexp.Regexp, clients []KubeClient, results chan<- S
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			rsList, err := client.Clientset.AppsV1().ReplicaSets("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil { return }
+			if err != nil {
+				return
+			}
 			for _, rs := range rsList.Items {
 				if re.MatchString(rs.Name) {
 					var desiredReplicas int32 = 1
-					if rs.Spec.Replicas != nil { desiredReplicas = *rs.Spec.Replicas }
+					if rs.Spec.Replicas != nil {
+						desiredReplicas = *rs.Spec.Replicas
+					}
 					readyStr := fmt.Sprintf("%d/%d Ready", rs.Status.ReadyReplicas, desiredReplicas)
 					results <- SearchResult{
-						Type:       "ReplicaSet",
-						Name:       rs.Name,
-						Cluster:    client.ContextName,
-						Namespace:  rs.Namespace,
-						URL:        fmt.Sprintf("/replicaset/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(rs.Name), url.QueryEscape(rs.Namespace), url.QueryEscape(client.ContextName)),
-						Info:       readyStr,
-						Matches:    []MatchInfo{{Field: "Name", Value: rs.Name}},
+						Type:      "ReplicaSet",
+						Name:      rs.Name,
+						Cluster:   client.ContextName,
+						Namespace: rs.Namespace,
+						URL:       fmt.Sprintf("/replicaset/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(rs.Name), url.QueryEscape(rs.Namespace), url.QueryEscape(client.ContextName)),
+						Info:      readyStr,
+						Matches:   []MatchInfo{{Field: "Name", Value: rs.Name}},
 					}
 				}
 			}
@@ -405,19 +419,21 @@ func searchDaemonSets(re *regexp.Regexp, clients []KubeClient, results chan<- Se
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			dsList, err := client.Clientset.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil { return }
+			if err != nil {
+				return
+			}
 			for _, ds := range dsList.Items {
 				if re.MatchString(ds.Name) {
 					readyStr := fmt.Sprintf("%d/%d Ready", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled)
 					results <- SearchResult{
-						Type:       "DaemonSet",
-						Name:       ds.Name,
-						Cluster:    client.ContextName,
-						Namespace:  ds.Namespace,
-						URL:        fmt.Sprintf("/daemonset/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(ds.Name), url.QueryEscape(ds.Namespace), url.QueryEscape(client.ContextName)),
-						Info:       readyStr,
-						Status:     "Running",
-						Matches:    []MatchInfo{{Field: "Name", Value: ds.Name}},
+						Type:      "DaemonSet",
+						Name:      ds.Name,
+						Cluster:   client.ContextName,
+						Namespace: ds.Namespace,
+						URL:       fmt.Sprintf("/daemonset/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(ds.Name), url.QueryEscape(ds.Namespace), url.QueryEscape(client.ContextName)),
+						Info:      readyStr,
+						Status:    "Running",
+						Matches:   []MatchInfo{{Field: "Name", Value: ds.Name}},
 					}
 				}
 			}
@@ -436,21 +452,25 @@ func searchStatefulSets(re *regexp.Regexp, clients []KubeClient, results chan<- 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			ssList, err := client.Clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil { return }
+			if err != nil {
+				return
+			}
 			for _, ss := range ssList.Items {
 				if re.MatchString(ss.Name) {
 					var desiredReplicas int32 = 1
-					if ss.Spec.Replicas != nil { desiredReplicas = *ss.Spec.Replicas }
+					if ss.Spec.Replicas != nil {
+						desiredReplicas = *ss.Spec.Replicas
+					}
 					readyStr := fmt.Sprintf("%d/%d Ready", ss.Status.ReadyReplicas, desiredReplicas)
 					results <- SearchResult{
-						Type:       "StatefulSet",
-						Name:       ss.Name,
-						Cluster:    client.ContextName,
-						Namespace:  ss.Namespace,
-						URL:        fmt.Sprintf("/statefulset/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(ss.Name), url.QueryEscape(ss.Namespace), url.QueryEscape(client.ContextName)),
-						Info:       readyStr,
-						Status:     "Running",
-						Matches:    []MatchInfo{{Field: "Name", Value: ss.Name}},
+						Type:      "StatefulSet",
+						Name:      ss.Name,
+						Cluster:   client.ContextName,
+						Namespace: ss.Namespace,
+						URL:       fmt.Sprintf("/statefulset/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(ss.Name), url.QueryEscape(ss.Namespace), url.QueryEscape(client.ContextName)),
+						Info:      readyStr,
+						Status:    "Running",
+						Matches:   []MatchInfo{{Field: "Name", Value: ss.Name}},
 					}
 				}
 			}
@@ -469,18 +489,20 @@ func searchConfigMaps(re *regexp.Regexp, clients []KubeClient, results chan<- Se
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			cmList, err := client.Clientset.CoreV1().ConfigMaps("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil { return }
+			if err != nil {
+				return
+			}
 			for _, cm := range cmList.Items {
 				if re.MatchString(cm.Name) {
 					infoStr := fmt.Sprintf("%d keys", len(cm.Data))
 					results <- SearchResult{
-						Type:       "ConfigMap",
-						Name:       cm.Name,
-						Cluster:    client.ContextName,
-						Namespace:  cm.Namespace,
-						Matches:    []MatchInfo{{Field: "Name", Value: cm.Name}},
-						URL:        fmt.Sprintf("/configmap/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(cm.Name), url.QueryEscape(cm.Namespace), url.QueryEscape(client.ContextName)),
-						Info:       infoStr,
+						Type:      "ConfigMap",
+						Name:      cm.Name,
+						Cluster:   client.ContextName,
+						Namespace: cm.Namespace,
+						Matches:   []MatchInfo{{Field: "Name", Value: cm.Name}},
+						URL:       fmt.Sprintf("/configmap/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(cm.Name), url.QueryEscape(cm.Namespace), url.QueryEscape(client.ContextName)),
+						Info:      infoStr,
 					}
 				}
 			}
@@ -499,18 +521,20 @@ func searchNodes(re *regexp.Regexp, clients []KubeClient, results chan<- SearchR
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			nodeList, err := client.Clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil { return }
+			if err != nil {
+				return
+			}
 			for _, node := range nodeList.Items {
 				if re.MatchString(node.Name) {
 					status, _ := getNodeStatus(node)
 					results <- SearchResult{
-						Type:       "Node",
-						Name:       node.Name,
-						Cluster:    client.ContextName,
-						URL:        fmt.Sprintf("/node/detail?name=%s&cluster_name=%s", url.QueryEscape(node.Name), url.QueryEscape(client.ContextName)),
-						Status:     status,
-						Info:       node.Status.NodeInfo.KubeletVersion,
-						Matches:    []MatchInfo{{Field: "Name", Value: node.Name}},
+						Type:    "Node",
+						Name:    node.Name,
+						Cluster: client.ContextName,
+						URL:     fmt.Sprintf("/node/detail?name=%s&cluster_name=%s", url.QueryEscape(node.Name), url.QueryEscape(client.ContextName)),
+						Status:  status,
+						Info:    node.Status.NodeInfo.KubeletVersion,
+						Matches: []MatchInfo{{Field: "Name", Value: node.Name}},
 					}
 				}
 			}
@@ -529,7 +553,9 @@ func searchPersistentVolumes(re *regexp.Regexp, clients []KubeClient, results ch
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			pvList, err := client.Clientset.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil { return }
+			if err != nil {
+				return
+			}
 			for _, pv := range pvList.Items {
 				if re.MatchString(pv.Name) {
 					storage := "N/A"
@@ -537,14 +563,14 @@ func searchPersistentVolumes(re *regexp.Regexp, clients []KubeClient, results ch
 						storage = formatMemory(&cap)
 					}
 					results <- SearchResult{
-						Type:       "PersistentVolume",
-						Name:       pv.Name,
-						Cluster:    client.ContextName,
-						Namespace:  pv.Spec.ClaimRef.Namespace,
-						Matches:    []MatchInfo{{Field: "Name", Value: pv.Name}},
-						URL:        "#",
-						Info:       storage,
-						Status:     string(pv.Status.Phase),
+						Type:      "PersistentVolume",
+						Name:      pv.Name,
+						Cluster:   client.ContextName,
+						Namespace: pv.Spec.ClaimRef.Namespace,
+						Matches:   []MatchInfo{{Field: "Name", Value: pv.Name}},
+						URL:       "#",
+						Info:      storage,
+						Status:    string(pv.Status.Phase),
 					}
 				}
 			}
@@ -564,18 +590,20 @@ func searchServices(re *regexp.Regexp, clients []KubeClient, results chan<- Sear
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			svcList, err := client.Clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil { return }
+			if err != nil {
+				return
+			}
 			for _, svc := range svcList.Items {
 				if re.MatchString(svc.Name) {
 					results <- SearchResult{
-						Type:       "Service",
-						Name:       svc.Name,
-						Cluster:    client.ContextName,
-						Namespace:  svc.Namespace,
-						Matches:    []MatchInfo{{Field: "Name", Value: svc.Name}},
-						URL:        fmt.Sprintf("/service/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(svc.Name), url.QueryEscape(svc.Namespace), url.QueryEscape(client.ContextName)),
-						Info:       svc.Spec.ClusterIP,
-						Status:     string(svc.Spec.Type),
+						Type:      "Service",
+						Name:      svc.Name,
+						Cluster:   client.ContextName,
+						Namespace: svc.Namespace,
+						Matches:   []MatchInfo{{Field: "Name", Value: svc.Name}},
+						URL:       fmt.Sprintf("/service/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(svc.Name), url.QueryEscape(svc.Namespace), url.QueryEscape(client.ContextName)),
+						Info:      svc.Spec.ClusterIP,
+						Status:    string(svc.Spec.Type),
 					}
 				}
 			}
@@ -595,7 +623,9 @@ func searchPVCs(re *regexp.Regexp, clients []KubeClient, results chan<- SearchRe
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			pvcList, err := client.Clientset.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil { return }
+			if err != nil {
+				return
+			}
 			for _, pvc := range pvcList.Items {
 				if re.MatchString(pvc.Name) {
 					storage := "N/A"
@@ -603,14 +633,14 @@ func searchPVCs(re *regexp.Regexp, clients []KubeClient, results chan<- SearchRe
 						storage = formatMemory(&cap)
 					}
 					results <- SearchResult{
-						Type:       "PVC",
-						Name:       pvc.Name,
-						Cluster:    client.ContextName,
-						Namespace:  pvc.Namespace,
-						Matches:    []MatchInfo{{Field: "Name", Value: pvc.Name}},
-						URL:        fmt.Sprintf("/pvc/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(pvc.Name), url.QueryEscape(pvc.Namespace), url.QueryEscape(client.ContextName)),
-						Info:       storage,
-						Status:     string(pvc.Status.Phase),
+						Type:      "PVC",
+						Name:      pvc.Name,
+						Cluster:   client.ContextName,
+						Namespace: pvc.Namespace,
+						Matches:   []MatchInfo{{Field: "Name", Value: pvc.Name}},
+						URL:       fmt.Sprintf("/pvc/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(pvc.Name), url.QueryEscape(pvc.Namespace), url.QueryEscape(client.ContextName)),
+						Info:      storage,
+						Status:    string(pvc.Status.Phase),
 					}
 				}
 			}
@@ -629,18 +659,20 @@ func searchServiceAccounts(re *regexp.Regexp, clients []KubeClient, results chan
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			saList, err := client.Clientset.CoreV1().ServiceAccounts("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil { return }
+			if err != nil {
+				return
+			}
 			for _, sa := range saList.Items {
 				if re.MatchString(sa.Name) {
 					results <- SearchResult{
-						Type:       "ServiceAccount",
-						Name:       sa.Name,
-						Cluster:    client.ContextName,
-						Namespace:  sa.Namespace,
-						Matches:    []MatchInfo{{Field: "Name", Value: sa.Name}},
-						URL:        fmt.Sprintf("/serviceaccount/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(sa.Name), url.QueryEscape(sa.Namespace), url.QueryEscape(client.ContextName)),
-						Status:     "Active",
-						Info:       fmt.Sprintf("%d Secrets", len(sa.Secrets)),
+						Type:      "ServiceAccount",
+						Name:      sa.Name,
+						Cluster:   client.ContextName,
+						Namespace: sa.Namespace,
+						Matches:   []MatchInfo{{Field: "Name", Value: sa.Name}},
+						URL:       fmt.Sprintf("/serviceaccount/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(sa.Name), url.QueryEscape(sa.Namespace), url.QueryEscape(client.ContextName)),
+						Status:    "Active",
+						Info:      fmt.Sprintf("%d Secrets", len(sa.Secrets)),
 					}
 				}
 			}
@@ -659,22 +691,26 @@ func searchIngresses(re *regexp.Regexp, clients []KubeClient, results chan<- Sea
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			list, err := client.Clientset.NetworkingV1().Ingresses("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil { return }
+			if err != nil {
+				return
+			}
 			for _, item := range list.Items {
 				if re.MatchString(item.Name) {
 					var hosts []string
 					for _, rule := range item.Spec.Rules {
-						if rule.Host != "" { hosts = append(hosts, rule.Host) }
+						if rule.Host != "" {
+							hosts = append(hosts, rule.Host)
+						}
 					}
 					results <- SearchResult{
-						Type:       "Ingress",
-						Name:       item.Name,
-						Cluster:    client.ContextName,
-						Namespace:  item.Namespace,
-						Matches:    []MatchInfo{{Field: "Name", Value: item.Name}},
-						URL:        fmt.Sprintf("/ingress/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(item.Name), url.QueryEscape(item.Namespace), url.QueryEscape(client.ContextName)),
-						Info:       fmt.Sprintf("%d Rules", len(item.Spec.Rules)),
-						Status:     "Active",
+						Type:      "Ingress",
+						Name:      item.Name,
+						Cluster:   client.ContextName,
+						Namespace: item.Namespace,
+						Matches:   []MatchInfo{{Field: "Name", Value: item.Name}},
+						URL:       fmt.Sprintf("/ingress/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(item.Name), url.QueryEscape(item.Namespace), url.QueryEscape(client.ContextName)),
+						Info:      fmt.Sprintf("%d Rules", len(item.Spec.Rules)),
+						Status:    "Active",
 					}
 				}
 			}
@@ -693,18 +729,20 @@ func searchSecrets(re *regexp.Regexp, clients []KubeClient, results chan<- Searc
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			list, err := client.Clientset.CoreV1().Secrets("").List(ctx, metav1.ListOptions{})
 			cancel()
-			if err != nil { return }
+			if err != nil {
+				return
+			}
 			for _, item := range list.Items {
 				if re.MatchString(item.Name) {
 					results <- SearchResult{
-						Type:       "Secret",
-						Name:       item.Name,
-						Cluster:    client.ContextName,
-						Namespace:  item.Namespace,
-						Matches:    []MatchInfo{{Field: "Name", Value: item.Name}},
-						URL:        fmt.Sprintf("/secret/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(item.Name), url.QueryEscape(item.Namespace), url.QueryEscape(client.ContextName)),
-						Info:       string(item.Type),
-						Status:     "Secure",
+						Type:      "Secret",
+						Name:      item.Name,
+						Cluster:   client.ContextName,
+						Namespace: item.Namespace,
+						Matches:   []MatchInfo{{Field: "Name", Value: item.Name}},
+						URL:       fmt.Sprintf("/secret/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(item.Name), url.QueryEscape(item.Namespace), url.QueryEscape(client.ContextName)),
+						Info:      string(item.Type),
+						Status:    "Secure",
 					}
 				}
 			}
