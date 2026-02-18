@@ -150,11 +150,26 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 						for _, cs := range item.Status.ContainerStatuses {
 							restartCount += int(cs.RestartCount)
 						}
+						displayStatus := string(item.Status.Phase)
+						if item.DeletionTimestamp != nil {
+							displayStatus = "Terminating"
+						} else {
+							for _, cs := range item.Status.ContainerStatuses {
+								if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
+									displayStatus = cs.State.Waiting.Reason
+									break
+								}
+								if cs.State.Terminated != nil && cs.State.Terminated.Reason != "Completed" {
+									displayStatus = cs.State.Terminated.Reason
+									break
+								}
+							}
+						}
 						view.Pods = append(view.Pods, PodInfo{
 							Name: item.Name, Ready: fmt.Sprintf("%d/%d", readyCount, len(item.Spec.Containers)),
-							Status: string(item.Status.Phase), Restarts: restartCount, Node: item.Spec.NodeName,
+							Status: displayStatus, Restarts: restartCount, Node: item.Spec.NodeName,
 							Age: formatAge(item.CreationTimestamp), PodIP: item.Status.PodIP, Cluster: client.ContextName,
-							Reason: getPodReason(item), Namespace: nsName,
+							Reason: getPodReason(item), Namespace: nsName, CreationTimestamp: item.CreationTimestamp.Time,
 						})
 					}
 				}
@@ -178,7 +193,7 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 							Cluster: client.ContextName,
 							Name:    item.Name, Age: formatAge(item.CreationTimestamp),
 							Ready:    fmt.Sprintf("%d/%d", item.Status.ReadyReplicas, desired),
-							Strategy: string(item.Spec.Strategy.Type), Images: images,
+							Strategy: string(item.Spec.Strategy.Type), Images: images, CreationTimestamp: item.CreationTimestamp.Time,
 						})
 					}
 				}
@@ -201,7 +216,8 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 						view.ReplicaSets = append(view.ReplicaSets, ReplicaSetInfo{
 							Cluster: client.ContextName, Namespace: nsName,
 							Name: item.Name, Owner: owner, Age: formatAge(item.CreationTimestamp),
-							Ready: fmt.Sprintf("%d/%d", item.Status.ReadyReplicas, desired),
+							Ready:             fmt.Sprintf("%d/%d", item.Status.ReadyReplicas, desired),
+							CreationTimestamp: item.CreationTimestamp.Time,
 						})
 					}
 				}
@@ -216,7 +232,8 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 						view.DaemonSets = append(view.DaemonSets, DaemonSetInfo{
 							Cluster: client.ContextName, Namespace: nsName,
 							Name: item.Name, Age: formatAge(item.CreationTimestamp),
-							Ready: fmt.Sprintf("%d/%d", item.Status.NumberReady, item.Status.DesiredNumberScheduled),
+							Ready:             fmt.Sprintf("%d/%d", item.Status.NumberReady, item.Status.DesiredNumberScheduled),
+							CreationTimestamp: item.CreationTimestamp.Time,
 						})
 					}
 				}
@@ -235,7 +252,8 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 						view.StatefulSets = append(view.StatefulSets, StatefulSetInfo{
 							Cluster: client.ContextName, Namespace: nsName,
 							Name: item.Name, Age: formatAge(item.CreationTimestamp),
-							Ready: fmt.Sprintf("%d/%d", item.Status.ReadyReplicas, desired),
+							Ready:             fmt.Sprintf("%d/%d", item.Status.ReadyReplicas, desired),
+							CreationTimestamp: item.CreationTimestamp.Time,
 						})
 					}
 				}
@@ -255,6 +273,7 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 							Name: item.Name, Type: string(item.Spec.Type), ClusterIP: item.Spec.ClusterIP,
 							ExternalIP: ext, Age: formatAge(item.CreationTimestamp),
 							Cluster: client.ContextName, Namespace: nsName,
+							CreationTimestamp: item.CreationTimestamp.Time,
 						})
 					}
 				}
@@ -277,6 +296,7 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 						view.Ingresses = append(view.Ingresses, IngressInfo{
 							Name: item.Name, Hosts: hosts, Address: addr, Age: formatAge(item.CreationTimestamp),
 							Cluster: client.ContextName, Namespace: nsName,
+							CreationTimestamp: item.CreationTimestamp.Time,
 						})
 					}
 				}
@@ -291,6 +311,7 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 						view.ConfigMaps = append(view.ConfigMaps, ConfigMapInfo{
 							Name: item.Name, DataKeys: len(item.Data), Age: formatAge(item.CreationTimestamp),
 							Cluster: client.ContextName, Namespace: nsName,
+							CreationTimestamp: item.CreationTimestamp.Time,
 						})
 					}
 				}
@@ -306,7 +327,7 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 						for _, item := range list.Items {
 							view.Secrets = append(view.Secrets, SecretInfo{
 								Name: item.Name, Type: string(item.Type), KeyCount: len(item.Data),
-								Age: formatAge(item.CreationTimestamp), Cluster: client.ContextName, Namespace: nsName,
+								Age: formatAge(item.CreationTimestamp), Cluster: client.ContextName, Namespace: nsName, CreationTimestamp: item.CreationTimestamp.Time,
 							})
 						}
 					}
@@ -386,36 +407,33 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 			data.AllEvents = append(data.AllEvents, res.Events...)
 		}
 
-		// Sort the lists for display
+		// Sort the lists for display (Default: Age/CreationTimestamp Descending = Newest First)
 		sort.Slice(data.AllPods, func(i, j int) bool {
-			if data.AllPods[i].Cluster != data.AllPods[j].Cluster {
-				return data.AllPods[i].Cluster < data.AllPods[j].Cluster
-			}
-			return data.AllPods[i].Name < data.AllPods[j].Name
+			return data.AllPods[i].CreationTimestamp.After(data.AllPods[j].CreationTimestamp)
 		})
 		sort.Slice(data.AllDeployments, func(i, j int) bool {
-			if data.AllDeployments[i].Cluster != data.AllDeployments[j].Cluster {
-				return data.AllDeployments[i].Cluster < data.AllDeployments[j].Cluster
-			}
-			return data.AllDeployments[i].Name < data.AllDeployments[j].Name
+			return data.AllDeployments[i].CreationTimestamp.After(data.AllDeployments[j].CreationTimestamp)
 		})
 		sort.Slice(data.AllReplicaSets, func(i, j int) bool {
-			if data.AllReplicaSets[i].Cluster != data.AllReplicaSets[j].Cluster {
-				return data.AllReplicaSets[i].Cluster < data.AllReplicaSets[j].Cluster
-			}
-			return data.AllReplicaSets[i].Name < data.AllReplicaSets[j].Name
+			return data.AllReplicaSets[i].CreationTimestamp.After(data.AllReplicaSets[j].CreationTimestamp)
 		})
 		sort.Slice(data.AllDaemonSets, func(i, j int) bool {
-			if data.AllDaemonSets[i].Cluster != data.AllDaemonSets[j].Cluster {
-				return data.AllDaemonSets[i].Cluster < data.AllDaemonSets[j].Cluster
-			}
-			return data.AllDaemonSets[i].Name < data.AllDaemonSets[j].Name
+			return data.AllDaemonSets[i].CreationTimestamp.After(data.AllDaemonSets[j].CreationTimestamp)
 		})
 		sort.Slice(data.AllStatefulSets, func(i, j int) bool {
-			if data.AllStatefulSets[i].Cluster != data.AllStatefulSets[j].Cluster {
-				return data.AllStatefulSets[i].Cluster < data.AllStatefulSets[j].Cluster
-			}
-			return data.AllStatefulSets[i].Name < data.AllStatefulSets[j].Name
+			return data.AllStatefulSets[i].CreationTimestamp.After(data.AllStatefulSets[j].CreationTimestamp)
+		})
+		sort.Slice(data.AllServices, func(i, j int) bool {
+			return data.AllServices[i].CreationTimestamp.After(data.AllServices[j].CreationTimestamp)
+		})
+		sort.Slice(data.AllIngresses, func(i, j int) bool {
+			return data.AllIngresses[i].CreationTimestamp.After(data.AllIngresses[j].CreationTimestamp)
+		})
+		sort.Slice(data.AllConfigMaps, func(i, j int) bool {
+			return data.AllConfigMaps[i].CreationTimestamp.After(data.AllConfigMaps[j].CreationTimestamp)
+		})
+		sort.Slice(data.AllSecrets, func(i, j int) bool {
+			return data.AllSecrets[i].CreationTimestamp.After(data.AllSecrets[j].CreationTimestamp)
 		})
 
 		sort.Strings(clusterNames)

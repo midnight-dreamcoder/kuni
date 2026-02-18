@@ -135,6 +135,7 @@ type PodInfo struct {
 	PodIP     string
 	QoS       string
 	Age       string
+	CreationTimestamp time.Time
 }
 
 // PodPageData is the main data object for the pods.html template
@@ -206,6 +207,7 @@ type ReplicaSetInfo struct {
 	Ready     string
 	Owner     string
 	Age       string
+	CreationTimestamp time.Time
 }
 
 // ReplicaSetPageData is the main data object for the replicasets.html template
@@ -241,6 +243,7 @@ type SimpleDeploymentInfo struct {
 	Images   []string
 	Strategy string
 	Age      string
+	CreationTimestamp time.Time
 }
 
 // ContainerInfo holds data for a single container in a pod
@@ -369,6 +372,7 @@ type DaemonSetInfo struct {
 	Ready     string
 	Node      string
 	Age       string
+	CreationTimestamp time.Time
 }
 
 // DaemonSetDetailView holds the "overview" data for a daemonset
@@ -407,6 +411,7 @@ type StatefulSetInfo struct {
 	Name      string
 	Ready     string
 	Age       string
+	CreationTimestamp time.Time
 }
 
 // StatefulSetDetailView holds the "overview" data for a statefulset
@@ -444,6 +449,7 @@ type ConfigMapInfo struct {
 	Name      string
 	DataKeys  int
 	Age       string
+	CreationTimestamp time.Time
 }
 
 // ConfigMapPageData is the main data object for the configmaps.html template
@@ -562,6 +568,7 @@ type ServiceInfo struct {
 	ClusterIP  string
 	ExternalIP string
 	Age        string
+	CreationTimestamp time.Time
 }
 
 // ServicePageData is the main data object for the services.html template
@@ -699,6 +706,7 @@ type IngressInfo struct {
 	Hosts     string // Comma-separated
 	Address   string // LoadBalancer IP/Hostname
 	Age       string
+	CreationTimestamp time.Time
 }
 
 // IngressPageData is the main data for ingresses.html
@@ -742,6 +750,7 @@ type SecretInfo struct {
 	Type      string
 	KeyCount  int
 	Age       string
+	CreationTimestamp time.Time
 }
 
 // SecretPageData is the main data for secrets.html

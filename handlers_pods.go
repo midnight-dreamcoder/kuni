@@ -20,7 +20,7 @@ func handleGetPods(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// UPDATED: Use GetBaseData
 		base := GetBaseData(c, "All Pods", "pods")
-		
+
 		// FIXED: Use getConfigsToProcess (Hybrid Loader)
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
@@ -54,29 +54,46 @@ func handleGetPods(pattern string) echo.HandlerFunc {
 					}
 				}
 				readyStr := fmt.Sprintf("%d/%d", readyCount, len(pod.Spec.Containers))
-				
+
 				restartCount := 0
 				for _, cs := range pod.Status.ContainerStatuses {
 					restartCount += int(cs.RestartCount)
 				}
-				
+
 				nodeName := pod.Spec.NodeName
 				if nodeName == "" {
 					nodeName = "N/A"
 				}
 
+				displayStatus := string(pod.Status.Phase)
+				if pod.DeletionTimestamp != nil {
+					displayStatus = "Terminating"
+				} else {
+					for _, cs := range pod.Status.ContainerStatuses {
+						if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
+							displayStatus = cs.State.Waiting.Reason
+							break
+						}
+						if cs.State.Terminated != nil && cs.State.Terminated.Reason != "Completed" {
+							displayStatus = cs.State.Terminated.Reason
+							break
+						}
+					}
+				}
+
 				localPods = append(localPods, PodInfo{
-					Cluster:   client.ContextName,
-					Namespace: pod.Namespace,
-					Name:      pod.Name,
-					Ready:     readyStr,
-					Status:    string(pod.Status.Phase),
-					Reason:    getPodReason(pod),
-					Restarts:  restartCount,
-					Node:      nodeName,
-					PodIP:     pod.Status.PodIP,
-					QoS:       string(pod.Status.QOSClass),
-					Age:       formatAge(pod.CreationTimestamp),
+					Cluster:           client.ContextName,
+					Namespace:         pod.Namespace,
+					Name:              pod.Name,
+					Ready:             readyStr,
+					Status:            displayStatus,
+					Reason:            getPodReason(pod),
+					Restarts:          restartCount,
+					Node:              nodeName,
+					PodIP:             pod.Status.PodIP,
+					QoS:               string(pod.Status.QOSClass),
+					Age:               formatAge(pod.CreationTimestamp),
+					CreationTimestamp: pod.CreationTimestamp.Time,
 				})
 			}
 			return localPods, nil
@@ -96,7 +113,7 @@ func handleGetPods(pattern string) echo.HandlerFunc {
 		for _, clusterPods := range results {
 			for _, pod := range clusterPods {
 				allPods = append(allPods, pod)
-				
+
 				// Update Stats
 				clusterDistribution[pod.Cluster]++
 				namespaceDistribution[pod.Namespace]++
@@ -109,11 +126,11 @@ func handleGetPods(pattern string) echo.HandlerFunc {
 
 		// --- 4. Sort and Format Data for View ---
 		var clusterStats []ClusterStat
-		for n, c := range clusterDistribution { 
-			clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c}) 
+		for n, c := range clusterDistribution {
+			clusterStats = append(clusterStats, ClusterStat{Name: n, Count: c})
 		}
 		sort.Slice(clusterStats, func(i, j int) bool { return clusterStats[i].Name < clusterStats[j].Name })
-		
+
 		var namespaceStats []NamespaceStat
 		for n, c := range namespaceDistribution {
 			namespaceStats = append(namespaceStats, NamespaceStat{Name: n, Count: c})
@@ -138,7 +155,7 @@ func handleGetPods(pattern string) echo.HandlerFunc {
 		sort.Slice(podStatusSlice, func(i, j int) bool {
 			return podStatusSlice[i].Count > podStatusSlice[j].Count
 		})
-		
+
 		var reasonSlice []ReasonStat
 		for reason, count := range reasonMap {
 			reasonSlice = append(reasonSlice, ReasonStat{Reason: reason, Count: count})
@@ -174,7 +191,7 @@ func handleGetPodDetail(pattern string) echo.HandlerFunc {
 		clusterContextName := c.QueryParam("cluster_name")
 		namespace := c.QueryParam("namespace")
 		podName := c.QueryParam("name")
-		
+
 		if clusterContextName == "" || namespace == "" || podName == "" {
 			return c.String(400, "Missing required query parameters: cluster_name, namespace, name")
 		}
@@ -187,14 +204,14 @@ func handleGetPodDetail(pattern string) echo.HandlerFunc {
 			base.ErrorLogs = append(base.ErrorLogs, err.Error())
 			return c.Render(200, "pod-detail.html", PodDetailPageData{PageBase: base})
 		}
-		
+
 		data := PodDetailPageData{
 			PageBase:      base,
 			ClusterName:   clusterContextName,
 			NamespaceName: namespace,
 			PodName:       podName,
 		}
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
@@ -231,7 +248,7 @@ func handleGetPodDetail(pattern string) echo.HandlerFunc {
 				for _, s := range pod.Status.ContainerStatuses {
 					statusMap[s.Name] = s
 				}
-				
+
 				for _, c := range pod.Spec.InitContainers {
 					data.InitContainers = append(data.InitContainers, parseContainer(c))
 				}
@@ -260,17 +277,25 @@ func handleGetPodDetail(pattern string) echo.HandlerFunc {
 				}
 				for _, v := range pod.Spec.Volumes {
 					volType := "Unknown"
-					if v.ConfigMap != nil { volType = "ConfigMap" }
-					if v.Secret != nil { volType = "Secret" }
-					if v.EmptyDir != nil { volType = "EmptyDir" }
-					if v.PersistentVolumeClaim != nil { volType = "PersistentVolumeClaim" }
+					if v.ConfigMap != nil {
+						volType = "ConfigMap"
+					}
+					if v.Secret != nil {
+						volType = "Secret"
+					}
+					if v.EmptyDir != nil {
+						volType = "EmptyDir"
+					}
+					if v.PersistentVolumeClaim != nil {
+						volType = "PersistentVolumeClaim"
+					}
 					data.Volumes = append(data.Volumes, VolumeInfo{
 						Name: v.Name, Type: volType,
 					})
 				}
 			}
 		}()
-		
+
 		go func() {
 			defer wg.Done()
 			fieldSelector := fmt.Sprintf("involvedObject.name=%s,involvedObject.namespace=%s", podName, namespace)
@@ -313,7 +338,7 @@ func handleGetPodLogs(pattern string) echo.HandlerFunc {
 		if err != nil {
 			return c.String(http.StatusInternalServerError, "Client error: "+err.Error())
 		}
-		
+
 		logCtx, logCancel := context.WithTimeout(context.Background(), 1*time.Hour)
 		defer logCancel()
 
@@ -322,19 +347,19 @@ func handleGetPodLogs(pattern string) echo.HandlerFunc {
 			Follow:    true,
 			TailLines: func() *int64 { i := int64(1000); return &i }(),
 		}
-		
+
 		req := clientset.CoreV1().Pods(namespace).GetLogs(podName, logOptions)
-		
-		podLogs, err := req.Stream(logCtx) 
+
+		podLogs, err := req.Stream(logCtx)
 		if err != nil {
 			return c.String(http.StatusNotFound, "Error starting log stream: "+err.Error())
 		}
 		defer podLogs.Close()
-		
+
 		c.Response().Header().Set(echo.HeaderContentType, echo.MIMETextPlainCharsetUTF8)
 		c.Response().Header().Set("X-Content-Type-Options", "nosniff")
-		c.Response().Header().Set("Cache-Control", "no-cache") 
-		c.Response().WriteHeader(http.StatusOK) 
+		c.Response().Header().Set("Cache-Control", "no-cache")
+		c.Response().WriteHeader(http.StatusOK)
 		c.Response().Flush()
 
 		buf := make([]byte, 1024)
@@ -347,7 +372,7 @@ func handleGetPodLogs(pattern string) echo.HandlerFunc {
 				}
 				c.Response().Flush()
 			}
-			
+
 			if readErr != nil {
 				if readErr == io.EOF {
 					break
@@ -356,7 +381,7 @@ func handleGetPodLogs(pattern string) echo.HandlerFunc {
 				break
 			}
 		}
-		
+
 		return nil
 	}
 }

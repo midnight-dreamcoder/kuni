@@ -79,7 +79,7 @@
                                         <th>Images</th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody id="history-tbody-{{ $cluster }}">
                                     {{ range $details.RolloutHistory }}
                                     <tr {{ if .IsActive }}style="background: rgba(16, 185, 129, 0.05); border-left: 2px solid #10b981;"{{ end }}>
                                         <td>
@@ -149,7 +149,7 @@
                         
                         <div class="overview-box">
                             <h2>Rollout Status</h2>
-                            <div style="padding: 1.5rem;">
+                            <div id="rollout-status-{{ $cluster }}" style="padding: 1.5rem;">
                                 {{ if $details.RolloutStatus.IsComplete }}
                                     <div style="color: #10b981; font-weight: 600; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
                                         <span>✔</span> Successfully rolled out
@@ -169,7 +169,7 @@
                             <h2>Overview</h2>
                             <ul class="overview-list">
                                 <li><strong>Component</strong> <span>{{ $compName }}</span></li>
-                                <li><strong>Replicas</strong> <span>{{ $details.Status }} (Ready/Total)</span></li>
+                                <li><strong>Replicas</strong> <span id="overview-replicas-{{ $cluster }}">{{ $details.Status }} (Ready/Total)</span></li>
                                 <li><strong>Strategy</strong> <span class="strategy-tag">{{ $details.Strategy }}</span></li>
                                 <li><strong>Selector</strong> <span style="font-family: monospace; font-size: 0.85rem;">{{ $details.Selector }}</span></li>
                             </ul>
@@ -223,6 +223,96 @@
             const targetBody = document.getElementById(targetId);
             if(targetBody) targetBody.classList.add('active');
         }
+
+        function updateDashboard() {
+            const queryString = window.location.search;
+            
+            fetch('/api/deployment/detail' + queryString + '&_t=' + new Date().getTime())
+                .then(response => response.json())
+                .then(data => {
+                    data.forEach(clusterData => {
+                        const cluster = clusterData.ClusterName;
+                        const overview = clusterData.Overview;
+                        const podsMap = clusterData.Pods;
+
+                        // Update Rollout Status
+                        const statusDiv = document.getElementById('rollout-status-' + cluster);
+                        if (statusDiv) {
+                            if (overview.RolloutStatus.IsComplete) {
+                                statusDiv.innerHTML = `<div style="color: #10b981; font-weight: 600; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;"><span>✔</span> Successfully rolled out</div>`;
+                            } else {
+                                statusDiv.innerHTML = `<div style="color: #f59e0b; font-weight: 600; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem; animation: pulse 2s infinite;"><span>⟳</span> Rolling out...</div><div style="margin-top: 0.75rem; font-size: 0.9rem; line-height: 1.4; color: #d1d5db; padding: 0.75rem; background: rgba(0,0,0,0.2); border-radius: 4px;">${overview.RolloutStatus.Message}</div>`;
+                            }
+                        }
+
+                        // Update Replicas
+                        const repSpan = document.getElementById('overview-replicas-' + cluster);
+                        if (repSpan) repSpan.innerText = overview.Status + " (Ready/Total)";
+
+                        // Update History Table
+                        const historyBody = document.getElementById('history-tbody-' + cluster);
+                        if (historyBody) {
+                            let html = '';
+                            if (overview.RolloutHistory && overview.RolloutHistory.length > 0) {
+                                overview.RolloutHistory.forEach(h => {
+                                    const activeStyle = h.IsActive ? 'style="background: rgba(16, 185, 129, 0.05); border-left: 2px solid #10b981;"' : '';
+                                    const activeBadge = h.IsActive ? '<span class="status status-ready" style="font-size:0.7em; margin-left:5px;">ACTIVE</span>' : '';
+                                    const cause = h.ChangeCause !== "<none>" ? h.ChangeCause : '<span style="color:#6b7280">-</span>';
+                                    const images = h.Images ? h.Images.map(img => `<span class="image-tag" style="font-size:0.8rem;">${img}</span>`).join(' ') : '';
+                                    const link = `/replicaset/detail?name=${encodeURIComponent(h.Name)}&namespace=${encodeURIComponent(clusterData.Namespace || "")}&cluster_name=${encodeURIComponent(cluster)}`;
+                                    
+                                    html += `<tr ${activeStyle}>
+                                        <td><span class="cluster-tag">#${h.Revision}</span>${activeBadge}</td>
+                                        <td style="white-space: normal; word-break: break-all; max-width: 250px;">
+                                            <a href="${link}" class="deployment-link">${h.Name}</a>
+                                        </td>
+                                        <td>${h.Replicas}</td>
+                                        <td style="white-space: normal; max-width: 200px; font-style: italic;">${cause}</td>
+                                        <td>${h.Age}</td>
+                                        <td style="white-space: normal; word-break: break-all; max-width: 350px;">${images}</td>
+                                    </tr>`;
+                                });
+                            } else {
+                                html = '<tr><td colspan="6" class="no-data">No history found.</td></tr>';
+                            }
+                            historyBody.innerHTML = html;
+                        }
+
+                        // Update Pods
+                        // We use the namespace from the API response to target the correct table
+                        const ns = clusterData.Namespace;
+                        const tbodyId = `pods-${cluster}-${ns}`;
+                        const tbody = document.getElementById(tbodyId);
+                        
+                        if (tbody) {
+                            const pods = (podsMap && podsMap[ns]) ? podsMap[ns] : [];
+                            
+                            if (pods.length === 0) {
+                                tbody.innerHTML = '<tr><td colspan="5" class="no-data">No pods found (scaled to 0).</td></tr>';
+                            } else {
+                                let html = '';
+                                pods.forEach(p => {
+                                    const statusClass = 'status-' + p.Status.toLowerCase();
+                                    const link = `/pod/detail?name=${encodeURIComponent(p.Name)}&namespace=${encodeURIComponent(p.Namespace)}&cluster_name=${encodeURIComponent(p.Cluster)}`;
+                                    const nodeLink = `/node/detail?name=${encodeURIComponent(p.Node)}&cluster_name=${encodeURIComponent(p.Cluster)}`;
+                                    
+                                    html += `<tr>
+                                        <td><a href="${link}" class="deployment-link">${p.Name}</a></td>
+                                        <td>${p.Ready}</td>
+                                        <td><span class="status ${statusClass}">${p.Status}</span></td>
+                                        <td>${p.Restarts}</td>
+                                        <td><a href="${nodeLink}" class="deployment-link">${p.Node}</a></td>
+                                    </tr>`;
+                                });
+                                tbody.innerHTML = html;
+                            }
+                        }
+                    });
+                })
+                .catch(err => console.error('Error fetching updates:', err));
+        }
+
+        setInterval(updateDashboard, 5000);
     </script>
 </body>
 </html>

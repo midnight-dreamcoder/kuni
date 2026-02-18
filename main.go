@@ -33,21 +33,21 @@ func main() {
 
 	InitDB(CurrentConfig.DatabasePath)
 	CreateDefaultUser()
-	
+
 	// --- 2. Initialize Echo ---
 	e := echo.New()
 	// Disable Debug mode in production for performance
-	e.Debug = true 
+	e.Debug = true
 
 	// --- GLOBAL MIDDLEWARE: OPTIONAL AUTH ---
 	// Allows Guests to view pages, but identifies Logged-in Users
-    e.Use(OptionalAuthMiddleware)
+	e.Use(OptionalAuthMiddleware)
 
 	// --- 2.1 Serve static files ---
 	// Serve the entire static folder (CSS, JS, Images)
-	e.Static("/static", "views/static") 
+	e.Static("/static", "views/static")
 	// Keep this for backward compatibility if you haven't moved style.css yet
-	e.File("/style.css", "views/style.css") 
+	e.File("/style.css", "views/style.css")
 
 	// --- 2.2 Initialize the custom template renderer ---
 	t := &TemplateRenderer{
@@ -98,7 +98,7 @@ func main() {
 				default:
 					return template.HTML(fmt.Sprintf("/search?q=%s", url.QueryEscape(name)))
 				}
-				
+
 				v, _ := url.ParseQuery(strings.TrimPrefix(qs, "?"))
 				v.Add("name", name)
 				v.Add("namespace", ns)
@@ -112,7 +112,7 @@ func main() {
 	e.Renderer = t
 
 	// --- 3. Define the Route Handlers ---
-	
+
 	// FIX: Allow Environment Variable override for Docker
 	var kubeDir string
 	if envDir := os.Getenv("KUBECONFIG_DIR"); envDir != "" {
@@ -138,24 +138,24 @@ func main() {
 	// Register routes
 
 	// AUTH ROUTES
-    e.GET("/login", handleLoginShow())
-    e.POST("/login", handleLoginSubmit())
-    e.GET("/logout", handleLogout())
+	e.GET("/login", handleLoginShow())
+	e.POST("/login", handleLoginSubmit())
+	e.GET("/logout", handleLogout())
 
-    // USER MANAGEMENT
+	// USER MANAGEMENT
 	e.GET("/users", handleGetUsers())
 	e.POST("/users/add", handleAddUser())
 	e.POST("/users/delete", handleDeleteUser())
 
 	// CONFIG MANAGEMENT
-    e.GET("/kubeconfigs", handleGetKubeConfigs(pattern))
-    e.POST("/kubeconfigs/add", handleAddKubeConfig(pattern))
-    e.POST("/kubeconfigs/delete", handleDeleteKubeConfig(pattern))
+	e.GET("/kubeconfigs", handleGetKubeConfigs(pattern))
+	e.POST("/kubeconfigs/add", handleAddKubeConfig(pattern))
+	e.POST("/kubeconfigs/delete", handleDeleteKubeConfig(pattern))
 
-    // APP ROUTES
+	// APP ROUTES
 	e.GET("/", handleSearch(pattern))
 	e.GET("/overview", handleGetClusterOverview(pattern))
-	
+
 	// SEARCH HANDLERS
 	e.GET("/search", handleSearch(pattern))
 	e.GET("/api/search", handleSearchAPI(pattern))
@@ -178,8 +178,10 @@ func main() {
 	e.GET("/serviceaccount/detail", handleGetServiceAccountDetail(pattern))
 	e.GET("/namespaces", handleGetNamespaces(pattern))
 	e.GET("/namespace/detail", handleGetNamespaceDetail(pattern))
+	e.GET("/api/namespace/detail", handleGetNamespaceDetailAPI(pattern))
 	e.GET("/deployments", handleGetDeployments(pattern))
 	e.GET("/deployment/detail", handleGetDeploymentDetail(pattern))
+	e.GET("/api/deployment/detail", handleGetDeploymentDetailAPI(pattern))
 	e.GET("/pods", handleGetPods(pattern))
 	e.GET("/pod/detail", handleGetPodDetail(pattern))
 	e.GET("/pod/logs", handleGetPodLogs(pattern))
@@ -203,7 +205,7 @@ func main() {
 	if CurrentConfig != nil && CurrentConfig.ServerPort != "" {
 		port = CurrentConfig.ServerPort
 	}
-	
+
 	log.Printf("🚀 K8s Universal Inspector starting on http://localhost%s", port)
 	e.Logger.Fatal(e.Start(port))
 }
