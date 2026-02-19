@@ -312,32 +312,22 @@ func handleGetDeploymentDetail(pattern string) echo.HandlerFunc {
 						restartCount += int(cs.RestartCount)
 					}
 
-					displayStatus := string(p.Status.Phase)
-					if p.DeletionTimestamp != nil {
-						displayStatus = "Terminating"
-					} else {
-						for _, cs := range p.Status.ContainerStatuses {
-							if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
-								displayStatus = cs.State.Waiting.Reason
-								break
-							}
-							if cs.State.Terminated != nil && cs.State.Terminated.Reason != "Completed" {
-								displayStatus = cs.State.Terminated.Reason
-								break
-							}
-						}
-					}
-
 					podsMap[d.Namespace] = append(podsMap[d.Namespace], PodInfo{
-						Name:      p.Name,
-						Ready:     fmt.Sprintf("%d/%d", readyCount, len(p.Spec.Containers)),
-						Status:    displayStatus,
-						Restarts:  restartCount,
-						Node:      p.Spec.NodeName,
-						Cluster:   client.ContextName,
-						Namespace: d.Namespace,
+						Name:              p.Name,
+						Ready:             fmt.Sprintf("%d/%d", readyCount, len(p.Spec.Containers)),
+						Status:            getPodDisplayStatus(p),
+						Restarts:          restartCount,
+						Node:              p.Spec.NodeName,
+						Cluster:           client.ContextName,
+						Namespace:         d.Namespace,
+						Age:               formatAge(p.CreationTimestamp),
+						CreationTimestamp: p.CreationTimestamp.Time,
 					})
 				}
+				// Sort pods by Age (Newest first)
+				sort.Slice(podsMap[d.Namespace], func(i, j int) bool {
+					return podsMap[d.Namespace][i].CreationTimestamp.After(podsMap[d.Namespace][j].CreationTimestamp)
+				})
 			}
 
 			return detailResult{ClusterName: client.ContextName, Overviews: overviews, Pods: podsMap}, nil
@@ -509,32 +499,22 @@ func handleGetDeploymentDetailAPI(pattern string) echo.HandlerFunc {
 						restartCount += int(cs.RestartCount)
 					}
 
-					displayStatus := string(p.Status.Phase)
-					if p.DeletionTimestamp != nil {
-						displayStatus = "Terminating"
-					} else {
-						for _, cs := range p.Status.ContainerStatuses {
-							if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
-								displayStatus = cs.State.Waiting.Reason
-								break
-							}
-							if cs.State.Terminated != nil && cs.State.Terminated.Reason != "Completed" {
-								displayStatus = cs.State.Terminated.Reason
-								break
-							}
-						}
-					}
-
 					podsMap[d.Namespace] = append(podsMap[d.Namespace], PodInfo{
-						Name:      p.Name,
-						Ready:     fmt.Sprintf("%d/%d", readyCount, len(p.Spec.Containers)),
-						Status:    displayStatus,
-						Restarts:  restartCount,
-						Node:      p.Spec.NodeName,
-						Cluster:   client.ContextName,
-						Namespace: d.Namespace,
+						Name:              p.Name,
+						Ready:             fmt.Sprintf("%d/%d", readyCount, len(p.Spec.Containers)),
+						Status:            getPodDisplayStatus(p),
+						Restarts:          restartCount,
+						Node:              p.Spec.NodeName,
+						Cluster:           client.ContextName,
+						Namespace:         d.Namespace,
+						Age:               formatAge(p.CreationTimestamp),
+						CreationTimestamp: p.CreationTimestamp.Time,
 					})
 				}
+				// Sort pods by Age (Newest first)
+				sort.Slice(podsMap[d.Namespace], func(i, j int) bool {
+					return podsMap[d.Namespace][i].CreationTimestamp.After(podsMap[d.Namespace][j].CreationTimestamp)
+				})
 
 				items = append(items, DeploymentDetailAPIResponse{
 					ClusterName: client.ContextName,

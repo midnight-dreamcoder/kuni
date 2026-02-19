@@ -187,6 +187,7 @@ func main() {
 	e.GET("/pod/logs", handleGetPodLogs(pattern))
 	e.GET("/replicasets", handleGetReplicaSets(pattern))
 	e.GET("/replicaset/detail", handleGetReplicaSetDetail(pattern))
+	e.GET("/api/replicaset/detail", handleGetReplicaSetDetailAPI(pattern))
 	e.GET("/daemonsets", handleGetDaemonSets(pattern))
 	e.GET("/daemonset/detail", handleGetDaemonSetDetail(pattern))
 	e.GET("/statefulsets", handleGetStatefulSets(pattern))

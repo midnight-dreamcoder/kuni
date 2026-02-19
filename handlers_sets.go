@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sort"
 	"time"
 
@@ -142,11 +143,25 @@ func handleGetReplicaSetDetail(pattern string) echo.HandlerFunc {
 				data.OwnerName = "None"
 			}
 
+			for _, c := range rs.Spec.Template.Spec.Containers {
+				data.Images = append(data.Images, c.Image)
+			}
+
 			// Fetch Pods
 			podList, _ := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: data.Selector})
 			for _, p := range podList.Items {
+				readyCount := 0
+				restartCount := 0
+				for _, cs := range p.Status.ContainerStatuses {
+					if cs.Ready {
+						readyCount++
+					}
+					restartCount += int(cs.RestartCount)
+				}
+				readyStr := fmt.Sprintf("%d/%d", readyCount, len(p.Spec.Containers))
 				data.Pods = append(data.Pods, PodInfo{
-					Cluster: cluster, Namespace: ns, Name: p.Name, Status: string(p.Status.Phase), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
+					Cluster: cluster, Namespace: ns, Name: p.Name, Status: getPodDisplayStatus(p), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
+					Ready: readyStr, Restarts: restartCount, PodIP: p.Status.PodIP,
 				})
 			}
 		}
@@ -160,6 +175,85 @@ func handleGetReplicaSetDetail(pattern string) echo.HandlerFunc {
 		}
 
 		return c.Render(200, "replicaset-detail.html", data)
+	}
+}
+
+// ReplicaSetDetailAPIResponse is the JSON response for the API
+type ReplicaSetDetailAPIResponse struct {
+	Status string
+	Age    string
+	Images []string
+	Pods   []PodInfo
+	Events []EventInfo
+}
+
+// handleGetReplicaSetDetailAPI returns JSON data for the replicaset detail page
+func handleGetReplicaSetDetailAPI(pattern string) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		cluster := c.QueryParam("cluster_name")
+		ns := c.QueryParam("namespace")
+		name := c.QueryParam("name")
+
+		clientset, err := findClient(pattern, cluster)
+		if err != nil {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "Cluster not found"})
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		rs, err := clientset.AppsV1().ReplicaSets(ns).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "ReplicaSet not found"})
+		}
+
+		resp := ReplicaSetDetailAPIResponse{}
+
+		var replicas int32 = 1
+		if rs.Spec.Replicas != nil {
+			replicas = *rs.Spec.Replicas
+		}
+		resp.Status = fmt.Sprintf("%d/%d Ready", rs.Status.ReadyReplicas, replicas)
+		resp.Age = formatAge(rs.CreationTimestamp)
+
+		for _, c := range rs.Spec.Template.Spec.Containers {
+			resp.Images = append(resp.Images, c.Image)
+		}
+
+		// Fetch Pods
+		podList, _ := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: metav1.FormatLabelSelector(rs.Spec.Selector)})
+		for _, p := range podList.Items {
+			readyCount := 0
+			restartCount := 0
+			for _, cs := range p.Status.ContainerStatuses {
+				if cs.Ready {
+					readyCount++
+				}
+				restartCount += int(cs.RestartCount)
+			}
+			readyStr := fmt.Sprintf("%d/%d", readyCount, len(p.Spec.Containers))
+
+			resp.Pods = append(resp.Pods, PodInfo{
+				Cluster: cluster, Namespace: ns, Name: p.Name, Status: getPodDisplayStatus(p), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
+				Ready: readyStr, Restarts: restartCount, PodIP: p.Status.PodIP, CreationTimestamp: p.CreationTimestamp.Time,
+			})
+		}
+		sort.Slice(resp.Pods, func(i, j int) bool {
+			return resp.Pods[i].CreationTimestamp.After(resp.Pods[j].CreationTimestamp)
+		})
+
+		// Fetch Events
+		events, _ := clientset.CoreV1().Events(ns).List(ctx, metav1.ListOptions{FieldSelector: "involvedObject.name=" + name})
+		sort.Slice(events.Items, func(i, j int) bool {
+			return events.Items[i].LastTimestamp.Time.After(events.Items[j].LastTimestamp.Time)
+		})
+		for _, e := range events.Items {
+			resp.Events = append(resp.Events, EventInfo{
+				Type: e.Type, Reason: e.Reason, Message: e.Message, Count: int(e.Count), LastSeen: formatAge(e.LastTimestamp),
+			})
+		}
+
+		return c.JSON(http.StatusOK, resp)
 	}
 }
 
@@ -263,8 +357,18 @@ func handleGetDaemonSetDetail(pattern string) echo.HandlerFunc {
 			// Fetch Pods
 			podList, _ := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: data.Overview.Selector})
 			for _, p := range podList.Items {
+				readyCount := 0
+				restartCount := 0
+				for _, cs := range p.Status.ContainerStatuses {
+					if cs.Ready {
+						readyCount++
+					}
+					restartCount += int(cs.RestartCount)
+				}
+				readyStr := fmt.Sprintf("%d/%d", readyCount, len(p.Spec.Containers))
 				data.Pods = append(data.Pods, PodInfo{
-					Cluster: cluster, Namespace: ns, Name: p.Name, Status: string(p.Status.Phase), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
+					Cluster: cluster, Namespace: ns, Name: p.Name, Status: getPodDisplayStatus(p), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
+					Ready: readyStr, Restarts: restartCount, PodIP: p.Status.PodIP,
 				})
 			}
 		}
@@ -388,8 +492,18 @@ func handleGetStatefulSetDetail(pattern string) echo.HandlerFunc {
 
 			podList, _ := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: data.Overview.Selector})
 			for _, p := range podList.Items {
+				readyCount := 0
+				restartCount := 0
+				for _, cs := range p.Status.ContainerStatuses {
+					if cs.Ready {
+						readyCount++
+					}
+					restartCount += int(cs.RestartCount)
+				}
+				readyStr := fmt.Sprintf("%d/%d", readyCount, len(p.Spec.Containers))
 				data.Pods = append(data.Pods, PodInfo{
-					Cluster: cluster, Namespace: ns, Name: p.Name, Status: string(p.Status.Phase), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
+					Cluster: cluster, Namespace: ns, Name: p.Name, Status: getPodDisplayStatus(p), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
+					Ready: readyStr, Restarts: restartCount, PodIP: p.Status.PodIP,
 				})
 			}
 		}

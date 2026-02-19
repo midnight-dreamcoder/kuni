@@ -150,24 +150,9 @@ func handleGetNamespaceDetail(pattern string) echo.HandlerFunc {
 						for _, cs := range item.Status.ContainerStatuses {
 							restartCount += int(cs.RestartCount)
 						}
-						displayStatus := string(item.Status.Phase)
-						if item.DeletionTimestamp != nil {
-							displayStatus = "Terminating"
-						} else {
-							for _, cs := range item.Status.ContainerStatuses {
-								if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
-									displayStatus = cs.State.Waiting.Reason
-									break
-								}
-								if cs.State.Terminated != nil && cs.State.Terminated.Reason != "Completed" {
-									displayStatus = cs.State.Terminated.Reason
-									break
-								}
-							}
-						}
 						view.Pods = append(view.Pods, PodInfo{
 							Name: item.Name, Ready: fmt.Sprintf("%d/%d", readyCount, len(item.Spec.Containers)),
-							Status: displayStatus, Restarts: restartCount, Node: item.Spec.NodeName,
+							Status: getPodDisplayStatus(item), Restarts: restartCount, Node: item.Spec.NodeName,
 							Age: formatAge(item.CreationTimestamp), PodIP: item.Status.PodIP, Cluster: client.ContextName,
 							Reason: getPodReason(item), Namespace: nsName, CreationTimestamp: item.CreationTimestamp.Time,
 						})

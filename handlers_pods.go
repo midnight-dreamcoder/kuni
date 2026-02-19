@@ -65,28 +65,12 @@ func handleGetPods(pattern string) echo.HandlerFunc {
 					nodeName = "N/A"
 				}
 
-				displayStatus := string(pod.Status.Phase)
-				if pod.DeletionTimestamp != nil {
-					displayStatus = "Terminating"
-				} else {
-					for _, cs := range pod.Status.ContainerStatuses {
-						if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
-							displayStatus = cs.State.Waiting.Reason
-							break
-						}
-						if cs.State.Terminated != nil && cs.State.Terminated.Reason != "Completed" {
-							displayStatus = cs.State.Terminated.Reason
-							break
-						}
-					}
-				}
-
 				localPods = append(localPods, PodInfo{
 					Cluster:           client.ContextName,
 					Namespace:         pod.Namespace,
 					Name:              pod.Name,
 					Ready:             readyStr,
-					Status:            displayStatus,
+					Status:            getPodDisplayStatus(pod),
 					Reason:            getPodReason(pod),
 					Restarts:          restartCount,
 					Node:              nodeName,

@@ -39,7 +39,7 @@
                                 <th>IP</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="pods-tbody">
                             {{ range .Pods }}
                             <tr>
                                 <td class="col-pod">
@@ -66,13 +66,13 @@
 
                 <div class="container">
                     <h2>Events</h2>
-                    <table>
+                    <table id="eventsTable">
                         <thead>
                             <tr>
-                                <th>Last Seen</th>
-                                <th>Type</th>
-                                <th>Reason</th>
-                                <th>Count</th>
+                                <th class="sortable-header sort-asc" data-sort-type="duration">Last Seen</th>
+                                <th class="sortable-header" data-sort-type="string">Type</th>
+                                <th class="sortable-header" data-sort-type="string">Reason</th>
+                                <th class="sortable-header" data-sort-type="number">Count</th>
                                 <th>Message</th>
                             </tr>
                         </thead>
@@ -97,8 +97,8 @@
                 <div class="overview-box">
                     <h2>Overview</h2>
                     <ul class="overview-list">
-                        <li><strong>Status</strong> <span>{{ .Status }} (Ready/Total)</span></li>
-                        <li><strong>Age</strong> <span>{{ .Age }}</span></li>
+                        <li><strong>Status</strong> <span id="rs-status">{{ .Status }} (Ready/Total)</span></li>
+                        <li><strong>Age</strong> <span id="rs-age">{{ .Age }}</span></li>
                         <li><strong>Owned By</strong> 
                             <span>
                                 {{ if .OwnerName }}
@@ -119,9 +119,94 @@
                         {{ .Selector }}
                     </div>
                 </div>
+
+                <div class="overview-box">
+                    <h2>Images</h2>
+                    <div id="rs-images" style="padding: 1rem 1.5rem;">
+                        {{ range .Images }}
+                            <div style="margin-bottom: 0.5rem;"><span class="image-tag">{{ . }}</span></div>
+                        {{ end }}
+                    </div>
+                </div>
             </div>
 
         </div>
     </main>
+    <script src="/static/js/table_utils.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const table = document.getElementById('eventsTable');
+            if (table) {
+                const tbody = table.querySelector('tbody');
+                sortRows(tbody, 0, 'duration', true);
+            }
+        });
+
+        function updateDashboard() {
+            const queryString = window.location.search;
+            fetch('/api/replicaset/detail' + queryString)
+                .then(response => response.json())
+                .then(data => {
+                    // Update Status
+                    document.getElementById('rs-status').innerText = data.Status + " (Ready/Total)";
+                    document.getElementById('rs-age').innerText = data.Age;
+
+                    // Update Images
+                    const imagesDiv = document.getElementById('rs-images');
+                    if (imagesDiv && data.Images) {
+                        imagesDiv.innerHTML = data.Images.map(img => 
+                            `<div style="margin-bottom: 0.5rem;"><span class="image-tag">${img}</span></div>`
+                        ).join('');
+                    }
+
+                    // Update Pods
+                    const podsBody = document.getElementById('pods-tbody');
+                    if (podsBody) {
+                        if (!data.Pods || data.Pods.length === 0) {
+                            podsBody.innerHTML = '<tr><td colspan="6" class="no-data">No pods found.</td></tr>';
+                        } else {
+                            let html = '';
+                            data.Pods.forEach(p => {
+                                const statusClass = 'status-' + p.Status.toLowerCase();
+                                const link = `/pod/detail?name=${encodeURIComponent(p.Name)}&namespace=${encodeURIComponent(p.Namespace)}&cluster_name=${encodeURIComponent(p.Cluster)}`;
+                                const nodeLink = `/node/detail?name=${encodeURIComponent(p.Node)}&cluster_name=${encodeURIComponent(p.Cluster)}`;
+                                html += `<tr>
+                                    <td class="col-pod"><a href="${link}" class="deployment-link">${p.Name}</a></td>
+                                    <td>${p.Ready}</td>
+                                    <td><span class="status ${statusClass}">${p.Status}</span></td>
+                                    <td>${p.Restarts}</td>
+                                    <td><a href="${nodeLink}" class="deployment-link">${p.Node}</a></td>
+                                    <td>${p.PodIP}</td>
+                                </tr>`;
+                            });
+                            podsBody.innerHTML = html;
+                        }
+                    }
+
+                    // Update Events
+                    const eventsBody = document.querySelector('#eventsTable tbody');
+                    if (eventsBody) {
+                        if (!data.Events || data.Events.length === 0) {
+                            eventsBody.innerHTML = '<tr><td colspan="5" class="no-data">No events found.</td></tr>';
+                        } else {
+                            let html = '';
+                            data.Events.forEach(e => {
+                                const rowClass = e.Type === 'Warning' ? 'event-warning' : 'event-normal';
+                                html += `<tr class="${rowClass}">
+                                    <td>${e.LastSeen}</td>
+                                    <td>${e.Type}</td>
+                                    <td>${e.Reason}</td>
+                                    <td>${e.Count}</td>
+                                    <td style="white-space: normal;">${e.Message}</td>
+                                </tr>`;
+                            });
+                            eventsBody.innerHTML = html;
+                        }
+                    }
+                })
+                .catch(err => console.error('Error fetching updates:', err));
+        }
+        setInterval(updateDashboard, 5000);
+    </script>
 </body>
 </html>

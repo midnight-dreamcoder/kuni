@@ -203,21 +203,7 @@ func handleGetNamespaceDetailAPI(pattern string) echo.HandlerFunc {
 					resp.GlobalStats.TotalPods++
 					readyCount := 0
 					restartCount := 0
-					displayStatus := string(p.Status.Phase)
-					if p.DeletionTimestamp != nil {
-						displayStatus = "Terminating"
-					} else {
-						for _, cs := range p.Status.ContainerStatuses {
-							if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
-								displayStatus = cs.State.Waiting.Reason
-								break
-							}
-							if cs.State.Terminated != nil && cs.State.Terminated.Reason != "Completed" {
-								displayStatus = cs.State.Terminated.Reason
-								break
-							}
-						}
-					}
+					displayStatus := getPodDisplayStatus(p)
 					resp.GlobalStats.PodStatus[displayStatus]++
 					for _, cs := range p.Status.ContainerStatuses {
 						if cs.Ready {

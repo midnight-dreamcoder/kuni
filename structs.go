@@ -1,8 +1,9 @@
 package main
 
 import (
-	"k8s.io/client-go/kubernetes"
 	"time"
+
+	"k8s.io/client-go/kubernetes"
 )
 
 // KubeClient holds a ready-to-use clientset and its context name
@@ -124,17 +125,17 @@ type DeploymentPageData struct {
 
 // PodInfo holds the data for one pod
 type PodInfo struct {
-	Cluster   string
-	Namespace string
-	Name      string
-	Ready     string
-	Status    string
-	Reason    string
-	Restarts  int
-	Node      string
-	PodIP     string
-	QoS       string
-	Age       string
+	Cluster           string
+	Namespace         string
+	Name              string
+	Ready             string
+	Status            string
+	Reason            string
+	Restarts          int
+	Node              string
+	PodIP             string
+	QoS               string
+	Age               string
 	CreationTimestamp time.Time
 }
 
@@ -201,12 +202,12 @@ type DeploymentDetailPageData struct {
 
 // ReplicaSetInfo holds the data for one replicaset
 type ReplicaSetInfo struct {
-	Cluster   string
-	Namespace string
-	Name      string
-	Ready     string
-	Owner     string
-	Age       string
+	Cluster           string
+	Namespace         string
+	Name              string
+	Ready             string
+	Owner             string
+	Age               string
 	CreationTimestamp time.Time
 }
 
@@ -231,18 +232,19 @@ type ReplicaSetDetailPageData struct {
 	OwnerName      string
 	OwnerKind      string
 	Age            string
+	Images         []string
 	Pods           []PodInfo
 	Events         []EventInfo
 }
 
 // SimpleDeploymentInfo is for the namespace detail list.
 type SimpleDeploymentInfo struct {
-	Cluster  string
-	Name     string
-	Ready    string
-	Images   []string
-	Strategy string
-	Age      string
+	Cluster           string
+	Name              string
+	Ready             string
+	Images            []string
+	Strategy          string
+	Age               string
 	CreationTimestamp time.Time
 }
 
@@ -366,12 +368,12 @@ type WorkloadOverviewPageData struct {
 
 // DaemonSetInfo holds the data for one daemonset
 type DaemonSetInfo struct {
-	Cluster   string
-	Namespace string
-	Name      string
-	Ready     string
-	Node      string
-	Age       string
+	Cluster           string
+	Namespace         string
+	Name              string
+	Ready             string
+	Node              string
+	Age               string
 	CreationTimestamp time.Time
 }
 
@@ -406,11 +408,11 @@ type DaemonSetPageData struct {
 
 // StatefulSetInfo holds the data for one statefulset
 type StatefulSetInfo struct {
-	Cluster   string
-	Namespace string
-	Name      string
-	Ready     string
-	Age       string
+	Cluster           string
+	Namespace         string
+	Name              string
+	Ready             string
+	Age               string
 	CreationTimestamp time.Time
 }
 
@@ -444,11 +446,11 @@ type StatefulSetPageData struct {
 
 // ConfigMapInfo holds the data for one configmap in a list
 type ConfigMapInfo struct {
-	Cluster   string
-	Namespace string
-	Name      string
-	DataKeys  int
-	Age       string
+	Cluster           string
+	Namespace         string
+	Name              string
+	DataKeys          int
+	Age               string
 	CreationTimestamp time.Time
 }
 
@@ -490,15 +492,15 @@ type ResourceSummary struct {
 	CapacityCpu    string // "128"
 	AllocatableCpu string // "120"
 	UsageCpu       string // "8.5"
-	
+
 	CapacityMem    string // "512 Gi"
 	AllocatableMem string // "480 Gi"
 	UsageMem       string // "100 Gi"
-	
+
 	// Percentages (of Capacity)
 	AllocatableCpuPercent float64
 	UsageCpuPercent       float64
-	
+
 	AllocatableMemPercent float64
 	UsageMemPercent       float64
 }
@@ -543,40 +545,40 @@ type ClusterOverviewPageData struct {
 	NodeStatus       WorkloadStat
 	PVStatus         []PodStatusStat
 	TotalPVs         int
-	ClusterResources map[string]ResourceSummary 
+	ClusterResources map[string]ResourceSummary
 	ClusterNames     []string
 }
 
 // EventPageData is the main data object for the events.html template
 type EventPageData struct {
 	PageBase
-	RecentEvents   []EventInfo
-	TotalEvents    int
-	ClusterStats   []ClusterStat
-	NamespaceStats []NamespaceStat
-	ReasonStats    []ReasonStat
+	RecentEvents      []EventInfo
+	TotalEvents       int
+	ClusterStats      []ClusterStat
+	NamespaceStats    []NamespaceStat
+	ReasonStats       []ReasonStat
 	HeatmapNamespaces []string
 	HeatmapRows       []HeatmapRow
 }
 
 // ServiceInfo holds the data for one service in a list
 type ServiceInfo struct {
-	Cluster    string
-	Namespace  string
-	Name       string
-	Type       string
-	ClusterIP  string
-	ExternalIP string
-	Age        string
+	Cluster           string
+	Namespace         string
+	Name              string
+	Type              string
+	ClusterIP         string
+	ExternalIP        string
+	Age               string
 	CreationTimestamp time.Time
 }
 
 // ServicePageData is the main data object for the services.html template
 type ServicePageData struct {
 	PageBase
-	Services      []ServiceInfo
-	TotalServices int
-	ClusterStats  []ClusterStat
+	Services       []ServiceInfo
+	TotalServices  int
+	ClusterStats   []ClusterStat
 	NamespaceStats []NamespaceStat
 }
 
@@ -641,7 +643,7 @@ type ServiceAccountDetailPageData struct {
 	NamespaceName      string
 	ServiceAccountName string
 	Age                string
-	Secrets            []string 
+	Secrets            []string
 	ImagePullSecrets   []string
 	Pods               []PodInfo
 	Events             []EventInfo
@@ -700,12 +702,12 @@ type PVCDetailPageData struct {
 
 // IngressInfo holds data for the list view
 type IngressInfo struct {
-	Cluster   string
-	Namespace string
-	Name      string
-	Hosts     string // Comma-separated
-	Address   string // LoadBalancer IP/Hostname
-	Age       string
+	Cluster           string
+	Namespace         string
+	Name              string
+	Hosts             string // Comma-separated
+	Address           string // LoadBalancer IP/Hostname
+	Age               string
 	CreationTimestamp time.Time
 }
 
@@ -744,12 +746,12 @@ type IngressDetailPageData struct {
 
 // SecretInfo holds data for the list view
 type SecretInfo struct {
-	Cluster   string
-	Namespace string
-	Name      string
-	Type      string
-	KeyCount  int
-	Age       string
+	Cluster           string
+	Namespace         string
+	Name              string
+	Type              string
+	KeyCount          int
+	Age               string
 	CreationTimestamp time.Time
 }
 
@@ -771,7 +773,7 @@ type SecretDetailPageData struct {
 	SecretName    string
 	Type          string
 	Age           string
-	Data          map[string]string 
+	Data          map[string]string
 	Events        []EventInfo
 }
 
@@ -783,7 +785,7 @@ type CRDInfo struct {
 	Kind     string
 	Scope    string
 	Age      string
-	Clusters []string 
+	Clusters []string
 }
 
 // CRDPageData is the main data for crds.html
@@ -816,55 +818,55 @@ type RolloutHistoryInfo struct {
 
 // NamespaceGlobalStats holds aggregated data across all clusters
 type NamespaceGlobalStats struct {
-    TotalPods           int
-    PodStatus           map[string]int // Running: 5, Pending: 1
-    
-    TotalDeployments    int
-    DeploymentReady     int
-    DeploymentHealth  WorkloadStat
-    
-    TotalDaemonSets     int
-    DaemonSetReady      int
-    
-    TotalStatefulSets   int
-    StatefulSetReady    int
-    TotalReplicaSets  int
-    
-    TotalServices       int
-    TotalIngresses      int
-    TotalConfigMaps     int
-    TotalSecrets        int
-    
-    EventsWarning       int
-    EventsNormal        int
+	TotalPods int
+	PodStatus map[string]int // Running: 5, Pending: 1
+
+	TotalDeployments int
+	DeploymentReady  int
+	DeploymentHealth WorkloadStat
+
+	TotalDaemonSets int
+	DaemonSetReady  int
+
+	TotalStatefulSets int
+	StatefulSetReady  int
+	TotalReplicaSets  int
+
+	TotalServices   int
+	TotalIngresses  int
+	TotalConfigMaps int
+	TotalSecrets    int
+
+	EventsWarning int
+	EventsNormal  int
 }
 
 // NamespaceDetailView now holds ALL resources for a specific cluster
 type NamespaceDetailView struct {
-    ClusterName      string
-    
-    // Counts
-    PodCount         int
-    DeploymentCount  int
-    ReplicaSetCount  int
-    DaemonSetCount   int
-    StatefulSetCount int
-    ServiceCount     int
-    IngressCount     int
-    ConfigMapCount   int
-    SecretCount      int
-    
-    // Data Lists
-    Pods             []PodInfo
-    Deployments      []SimpleDeploymentInfo
-    ReplicaSets      []ReplicaSetInfo
-    DaemonSets       []DaemonSetInfo
-    StatefulSets     []StatefulSetInfo
-    Services         []ServiceInfo
-    Ingresses        []IngressInfo
-    ConfigMaps       []ConfigMapInfo
-    Secrets          []SecretInfo
-    Events           []EventInfo
+	ClusterName string
+
+	// Counts
+	PodCount         int
+	DeploymentCount  int
+	ReplicaSetCount  int
+	DaemonSetCount   int
+	StatefulSetCount int
+	ServiceCount     int
+	IngressCount     int
+	ConfigMapCount   int
+	SecretCount      int
+
+	// Data Lists
+	Pods         []PodInfo
+	Deployments  []SimpleDeploymentInfo
+	ReplicaSets  []ReplicaSetInfo
+	DaemonSets   []DaemonSetInfo
+	StatefulSets []StatefulSetInfo
+	Services     []ServiceInfo
+	Ingresses    []IngressInfo
+	ConfigMaps   []ConfigMapInfo
+	Secrets      []SecretInfo
+	Events       []EventInfo
 }
 
 // NamespaceDetailPageData is the main data object for the detail page
@@ -872,20 +874,20 @@ type NamespaceDetailPageData struct {
 	PageBase
 	NamespaceName string
 	ClusterNames  []string
-	
-	// Aggregated Data (Replaces the need for iterating the map in the view)
-	AllPods          []PodInfo
-	AllDeployments   []SimpleDeploymentInfo
-	AllReplicaSets   []ReplicaSetInfo
-	AllDaemonSets    []DaemonSetInfo
-	AllStatefulSets  []StatefulSetInfo
-	AllServices      []ServiceInfo
-	AllIngresses     []IngressInfo
-	AllConfigMaps    []ConfigMapInfo
-	AllSecrets       []SecretInfo
-	AllEvents        []EventInfo
 
-	GlobalStats   NamespaceGlobalStats
+	// Aggregated Data (Replaces the need for iterating the map in the view)
+	AllPods         []PodInfo
+	AllDeployments  []SimpleDeploymentInfo
+	AllReplicaSets  []ReplicaSetInfo
+	AllDaemonSets   []DaemonSetInfo
+	AllStatefulSets []StatefulSetInfo
+	AllServices     []ServiceInfo
+	AllIngresses    []IngressInfo
+	AllConfigMaps   []ConfigMapInfo
+	AllSecrets      []SecretInfo
+	AllEvents       []EventInfo
+
+	GlobalStats NamespaceGlobalStats
 }
 
 // FluxResource holds normalized data for the UI
@@ -904,6 +906,6 @@ type FluxResource struct {
 // FluxPageData is the main data object for the flux.html template
 type FluxPageData struct {
 	PageBase
-	Resources []FluxResource
+	Resources        []FluxResource
 	SelectedClusters map[string]bool
 }

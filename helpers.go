@@ -177,6 +177,22 @@ func getPodReason(pod v1.Pod) string {
 	return ""
 }
 
+// getPodDisplayStatus determines the status string to show in the UI (e.g. CrashLoopBackOff)
+func getPodDisplayStatus(pod v1.Pod) string {
+	if pod.DeletionTimestamp != nil {
+		return "Terminating"
+	}
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
+			return cs.State.Waiting.Reason
+		}
+		if cs.State.Terminated != nil && cs.State.Terminated.Reason != "Completed" {
+			return cs.State.Terminated.Reason
+		}
+	}
+	return string(pod.Status.Phase)
+}
+
 // getNodeStatus extracts the Ready status from a node's conditions
 func getNodeStatus(node v1.Node) (string, string) {
 	for _, cond := range node.Status.Conditions {

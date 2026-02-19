@@ -118,6 +118,7 @@
                                         <th>Ready</th>
                                         <th>Status</th>
                                         <th>Restarts</th>
+                                        <th class="sortable-header sort-asc" data-sort-type="duration">Age</th>
                                         <th>Node</th>
                                     </tr>
                                 </thead>
@@ -133,6 +134,7 @@
                                             <td>{{ .Ready }}</td>
                                             <td><span class="status status-{{ .Status | ToLower }}">{{ .Status }}</span></td>
                                             <td>{{ .Restarts }}</td>
+                                            <td>{{ .Age }}</td>
                                             <td><a href="{{ MakeURL $.QueryString "/node/detail" "name" .Node "cluster_name" .Cluster }}" class="deployment-link">{{ .Node }}</a></td>
                                         </tr>
                                         {{ end }}
@@ -301,6 +303,7 @@
                                         <td>${p.Ready}</td>
                                         <td><span class="status ${statusClass}">${p.Status}</span></td>
                                         <td>${p.Restarts}</td>
+                                        <td>${p.Age}</td>
                                         <td><a href="${nodeLink}" class="deployment-link">${p.Node}</a></td>
                                     </tr>`;
                                 });
