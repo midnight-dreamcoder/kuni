@@ -108,6 +108,11 @@ func handleGetPods(pattern string) echo.HandlerFunc {
 			}
 		}
 
+		// Sort by Age (Newest first)
+		sort.Slice(allPods, func(i, j int) bool {
+			return allPods[i].CreationTimestamp.After(allPods[j].CreationTimestamp)
+		})
+
 		// --- 4. Sort and Format Data for View ---
 		var clusterStats []ClusterStat
 		for n, c := range clusterDistribution {

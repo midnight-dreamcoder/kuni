@@ -138,6 +138,7 @@
                         <th class="sortable-header" data-sort-type="string">Status</th>
                         <th class="sortable-header" data-sort-type="string">Reason</th>
                         <th class="sortable-header" data-sort-type="number">Restarts</th>
+                        <th class="sortable-header sort-asc" data-sort-type="duration">Age</th>
                         <th class="sortable-header col-cluster" data-sort-type="string">Cluster</th>
                         <th class="sortable-header col-namespace" data-sort-type="string">Namespace</th>
                     </tr>
@@ -156,6 +157,7 @@
                         </td>
                         <td class="reason-col">{{ .Reason }}</td>
                         <td>{{ .Restarts }}</td>
+                        <td>{{ .Age }}</td>
                         <td class="cluster-name col-cluster">
                             <a href="{{ MakeURL $.QueryString "/cluster/detail" "cluster_name" .Cluster }}" class="deployment-link">
                                 {{ .Cluster }}

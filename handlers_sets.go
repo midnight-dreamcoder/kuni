@@ -52,14 +52,18 @@ func handleGetReplicaSets(pattern string) echo.HandlerFunc {
 				if rs.Spec.Replicas != nil {
 					replicas = *rs.Spec.Replicas
 				}
+				if replicas == 0 {
+					continue
+				}
 				readyStr := fmt.Sprintf("%d/%d", rs.Status.ReadyReplicas, replicas)
 				items = append(items, ReplicaSetInfo{
-					Cluster:   client.ContextName,
-					Namespace: rs.Namespace,
-					Name:      rs.Name,
-					Ready:     readyStr,
-					Owner:     owner,
-					Age:       formatAge(rs.CreationTimestamp),
+					Cluster:           client.ContextName,
+					Namespace:         rs.Namespace,
+					Name:              rs.Name,
+					Ready:             readyStr,
+					Owner:             owner,
+					Age:               formatAge(rs.CreationTimestamp),
+					CreationTimestamp: rs.CreationTimestamp.Time,
 				})
 				nsCount[rs.Namespace]++
 			}
@@ -85,6 +89,10 @@ func handleGetReplicaSets(pattern string) echo.HandlerFunc {
 				gNS[n] += c
 			}
 		}
+		// Sort by Age (Newest first)
+		sort.Slice(allRS, func(i, j int) bool {
+			return allRS[i].CreationTimestamp.After(allRS[j].CreationTimestamp)
+		})
 
 		var nsStats []NamespaceStat
 		for n, c := range gNS {

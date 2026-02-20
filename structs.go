@@ -218,7 +218,6 @@ type ReplicaSetPageData struct {
 	TotalReplicaSets int
 	ClusterStats     []ClusterStat
 	NamespaceStats   []NamespaceStat
-	OwnerStats       []NamespaceStat
 }
 
 // ReplicaSetDetailPageData is the main data object for the replicaset-detail.html template
