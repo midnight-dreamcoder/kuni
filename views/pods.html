@@ -133,9 +133,9 @@
             <table id="mainTable">
                 <thead id="tableHeader">
                     <tr>
+                        <th class="sortable-header" data-sort-type="string" style="width: 50px; text-align: center;"></th>
                         <th class="sortable-header col-pod" data-sort-type="string">Pod</th>
                         <th class="sortable-header" data-sort-type="number" data-sort-key="ready">Ready</th>
-                        <th class="sortable-header" data-sort-type="string">Status</th>
                         <th class="sortable-header" data-sort-type="string">Reason</th>
                         <th class="sortable-header" data-sort-type="number">Restarts</th>
                         <th class="sortable-header sort-asc" data-sort-type="duration">Age</th>
@@ -146,15 +146,36 @@
                 <tbody id="tableBody">
                     {{ range .Pods }}
                     <tr>
+                        <td style="text-align: center;">
+                            <span style="display:none;">{{ .Status }}</span>
+                            <div title="{{ .Status }}">
+                                {{ if eq .Status "Running" }}
+                                    <svg class="status-icon status-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                {{ else if eq .Status "Pending" }}
+                                    <svg class="status-icon status-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2" /></svg>
+                                {{ else if eq .Status "Succeeded" }}
+                                    <svg class="status-icon status-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                {{ else if eq .Status "Failed" }}
+                                    <svg class="status-icon status-error" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 9l-6 6m0-6l6 6" /></svg>
+                                {{ else if eq .Status "CrashLoopBackOff" }}
+                                    <svg class="status-icon status-error" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                {{ else if or (eq .Status "ImagePullBackOff") (eq .Status "ErrImagePull") }}
+                                    <svg class="status-icon status-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                {{ else if eq .Status "ContainerCreating" }}
+                                    <svg class="status-icon status-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
+                                {{ else if eq .Status "Terminating" }}
+                                    <svg class="status-icon status-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+                                {{ else }}
+                                    <svg class="status-icon status-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path stroke-linecap="round" stroke-linejoin="round" d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3m0 6h.01" /></svg>
+                                {{ end }}
+                            </div>
+                        </td>
                         <td class="col-pod">
                             <a href="{{ MakeURL $.QueryString "/pod/detail" "name" .Name "namespace" .Namespace "cluster_name" .Cluster }}" class="deployment-link">
                                 {{ .Name }}
                             </a>
                         </td>
                         <td>{{ .Ready }}</td>
-                        <td>
-                            <span class="status status-{{ .Status | ToLower }}">{{ .Status }}</span>
-                        </td>
                         <td class="reason-col">{{ .Reason }}</td>
                         <td>{{ .Restarts }}</td>
                         <td>{{ .Age }}</td>
@@ -171,7 +192,7 @@
                     </tr>
                     {{ else }}
                     <tr>
-                        <td colspan="7" class="no-data">No pods found.</td>
+                        <td colspan="8" class="no-data">No pods found.</td>
                     </tr>
                     {{ end }}
                 </tbody>
@@ -184,5 +205,14 @@
     </main>
 
     <script src="/static/js/table_utils.js"></script>
+    <style>
+        .status-icon { width: 20px; height: 20px; vertical-align: middle; }
+        .status-success { color: #10b981; }
+        .status-warning { color: #f59e0b; }
+        .status-error { color: #ef4444; }
+        .status-info { color: #22d3ee; }
+        .status-muted { color: #9ca3af; }
+        .legend-color { border-radius: 50%; }
+    </style>
 </body>
 </html>

@@ -102,6 +102,7 @@
             <table id="deploymentTable">
                 <thead>
                     <tr>
+                        <th style="width: 40px; text-align: center;"></th>
                         <th class="sortable-header" data-sort-type="string">Cluster</th>
                         <th class="sortable-header" data-sort-type="string">Name</th>
                         <th class="sortable-header" data-sort-type="string">Ready</th>
@@ -112,6 +113,7 @@
                 <tbody>
                     {{ range .AllDeployments }}
                     <tr>
+                        <td style="text-align: center;"><span class="ready-icon" data-ready="{{ .Ready }}"></span></td>
                         <td class="cluster-name">{{ .Cluster }}</td>
                         <td><a href="{{ MakeURL $.QueryString "/deployment/detail" "name" .Name }}" class="deployment-link">{{ .Name }}</a></td>
                         <td>{{ .Ready }}</td>
@@ -130,6 +132,7 @@
             <table id="daemonsetTable">
                 <thead>
                     <tr>
+                        <th style="width: 40px; text-align: center;"></th>
                         <th class="sortable-header" data-sort-type="string">Cluster</th>
                         <th class="sortable-header" data-sort-type="string">Name</th>
                         <th class="sortable-header" data-sort-type="string">Ready</th>
@@ -139,6 +142,7 @@
                 <tbody>
                     {{ range .AllDaemonSets }}
                     <tr>
+                        <td style="text-align: center;"><span class="ready-icon" data-ready="{{ .Ready }}"></span></td>
                         <td class="cluster-name">{{ .Cluster }}</td>
                         <td><a href="{{ MakeURL $.QueryString "/daemonset/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
                         <td>{{ .Ready }}</td>
@@ -156,6 +160,7 @@
             <table id="statefulsetTable">
                 <thead>
                     <tr>
+                        <th style="width: 40px; text-align: center;"></th>
                         <th class="sortable-header" data-sort-type="string">Cluster</th>
                         <th class="sortable-header" data-sort-type="string">Name</th>
                         <th class="sortable-header" data-sort-type="string">Ready</th>
@@ -165,6 +170,7 @@
                 <tbody>
                     {{ range .AllStatefulSets }}
                     <tr>
+                        <td style="text-align: center;"><span class="ready-icon" data-ready="{{ .Ready }}"></span></td>
                         <td class="cluster-name">{{ .Cluster }}</td>
                         <td><a href="{{ MakeURL $.QueryString "/statefulset/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
                         <td>{{ .Ready }}</td>
@@ -182,6 +188,7 @@
             <table id="replicasetTable">
                 <thead>
                     <tr>
+                        <th style="width: 40px; text-align: center;"></th>
                         <th class="sortable-header" data-sort-type="string">Cluster</th>
                         <th class="sortable-header" data-sort-type="string">Name</th>
                         <th class="sortable-header" data-sort-type="string">Ready</th>
@@ -191,6 +198,7 @@
                 <tbody>
                     {{ range .AllReplicaSets }}
                     <tr>
+                        <td style="text-align: center;"><span class="ready-icon" data-ready="{{ .Ready }}"></span></td>
                         <td class="cluster-name">{{ .Cluster }}</td>
                         <td><a href="{{ MakeURL $.QueryString "/replicaset/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
                         <td>{{ .Ready }}</td>
@@ -207,6 +215,7 @@
             <table id="podTable">
                 <thead>
                     <tr>
+                        <th style="width: 40px; text-align: center;"></th>
                         <th class="sortable-header" data-sort-type="string">Cluster</th>
                         <th class="sortable-header" data-sort-type="string">Name</th>
                         <th class="sortable-header" data-sort-type="string">Ready</th>
@@ -220,6 +229,7 @@
                 <tbody>
                     {{ range .AllPods }}
                     <tr>
+                        <td style="text-align: center;"><span class="pod-icon" data-status="{{ .Status }}"></span></td>
                         <td class="cluster-name">{{ .Cluster }}</td>
                         <td><a href="{{ MakeURL $.QueryString "/pod/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
                         <td>{{ .Ready }}</td>
@@ -316,6 +326,10 @@
         document.addEventListener('DOMContentLoaded', function() {
             // Poll every 5 seconds
             setInterval(updateNamespaceData, 5000);
+            
+            // Initial Icon Render
+            document.querySelectorAll('.ready-icon').forEach(el => el.innerHTML = getReadyIcon(el.dataset.ready));
+            document.querySelectorAll('.pod-icon').forEach(el => el.innerHTML = getStatusIcon(el.dataset.status));
         });
 
         function updateNamespaceData() {
@@ -377,6 +391,7 @@
             const ns = new URLSearchParams(window.location.search).get('name');
             
             updateTableBody('deploymentTable', data.Deployments, item => `
+                <td style="text-align: center;">${getReadyIcon(item.Ready)}</td>
                 <td class="cluster-name">${item.Cluster}</td>
                 <td><a href="/deployment/detail?name=${encodeURIComponent(item.Name)}${getQueryString()}" class="deployment-link">${item.Name}</a></td>
                 <td>${item.Ready}</td>
@@ -385,6 +400,7 @@
             `);
 
             updateTableBody('daemonsetTable', data.DaemonSets, item => `
+                <td style="text-align: center;">${getReadyIcon(item.Ready)}</td>
                 <td class="cluster-name">${item.Cluster}</td>
                 <td><a href="/daemonset/detail?name=${encodeURIComponent(item.Name)}&namespace=${encodeURIComponent(ns)}&cluster_name=${encodeURIComponent(item.Cluster)}${getQueryString()}" class="deployment-link">${item.Name}</a></td>
                 <td>${item.Ready}</td>
@@ -392,6 +408,7 @@
             `);
 
             updateTableBody('statefulsetTable', data.StatefulSets, item => `
+                <td style="text-align: center;">${getReadyIcon(item.Ready)}</td>
                 <td class="cluster-name">${item.Cluster}</td>
                 <td><a href="/statefulset/detail?name=${encodeURIComponent(item.Name)}&namespace=${encodeURIComponent(ns)}&cluster_name=${encodeURIComponent(item.Cluster)}${getQueryString()}" class="deployment-link">${item.Name}</a></td>
                 <td>${item.Ready}</td>
@@ -399,6 +416,7 @@
             `);
 
             updateTableBody('replicasetTable', data.ReplicaSets, item => `
+                <td style="text-align: center;">${getReadyIcon(item.Ready)}</td>
                 <td class="cluster-name">${item.Cluster}</td>
                 <td><a href="/replicaset/detail?name=${encodeURIComponent(item.Name)}&namespace=${encodeURIComponent(ns)}&cluster_name=${encodeURIComponent(item.Cluster)}${getQueryString()}" class="deployment-link">${item.Name}</a></td>
                 <td>${item.Ready}</td>
@@ -406,6 +424,7 @@
             `);
 
             updateTableBody('podTable', data.Pods, item => `
+                <td style="text-align: center;">${getStatusIcon(item.Status)}</td>
                 <td class="cluster-name">${item.Cluster}</td>
                 <td><a href="/pod/detail?name=${encodeURIComponent(item.Name)}&namespace=${encodeURIComponent(ns)}&cluster_name=${encodeURIComponent(item.Cluster)}${getQueryString()}" class="deployment-link">${item.Name}</a></td>
                 <td>${item.Ready}</td>
@@ -478,6 +497,25 @@
             params.delete('namespace');
             const str = params.toString();
             return str ? '&' + str : '';
+        }
+
+        function getReadyIcon(readyStr) {
+            if (!readyStr) return '';
+            const parts = readyStr.split('/');
+            if (parts.length === 2) {
+                const r = parseInt(parts[0]);
+                const d = parseInt(parts[1]);
+                if (r === d) return '<svg class="status-icon status-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>';
+                return '<svg class="status-icon status-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01" /></svg>';
+            }
+            return '';
+        }
+
+        function getStatusIcon(status) {
+            const s = (status || '').toLowerCase();
+            if (s === 'running' || s === 'succeeded' || s === 'completed' || s === 'ready') return '<svg class="status-icon status-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>';
+            if (s === 'failed' || s === 'crashloopbackoff' || s === 'error' || s === 'oomkilled') return '<svg class="status-icon status-error" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 9l-6 6m0-6l6 6" /></svg>';
+            return '<svg class="status-icon status-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2" /></svg>';
         }
     </script>
 </body>

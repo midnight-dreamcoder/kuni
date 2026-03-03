@@ -62,6 +62,8 @@ func handleGetReplicaSets(pattern string) echo.HandlerFunc {
 					Name:              rs.Name,
 					Ready:             readyStr,
 					Owner:             owner,
+					Replicas:          int(replicas),
+					ReadyReplicas:     int(rs.Status.ReadyReplicas),
 					Age:               formatAge(rs.CreationTimestamp),
 					CreationTimestamp: rs.CreationTimestamp.Time,
 				})

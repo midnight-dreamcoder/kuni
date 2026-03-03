@@ -86,6 +86,7 @@
             <table id="mainTable">
                 <thead id="tableHeader">
                     <tr>
+                        <th class="sortable-header" data-sort-type="number" style="width: 50px; text-align: center;"></th>
                         <th class="sortable-header" data-sort-type="string">Name</th>
                         <th class="sortable-header" data-sort-type="string">Namespace</th>
                         <th class="sortable-header" data-sort-type="string">Cluster</th>
@@ -97,6 +98,16 @@
                 <tbody id="tableBody">
                     {{ range .ReplicaSets }}
                     <tr>
+                        <td style="text-align: center;">
+                            <span style="display:none">{{ if eq .ReadyReplicas .Replicas }}1{{ else }}0{{ end }}</span>
+                            <div title="{{ .Ready }}">
+                                {{ if eq .ReadyReplicas .Replicas }}
+                                    <svg class="status-icon status-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                {{ else }}
+                                    <svg class="status-icon status-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01" /></svg>
+                                {{ end }}
+                            </div>
+                        </td>
                         <td><a href="{{ MakeURL $.QueryString "/replicaset/detail" "name" .Name "namespace" .Namespace "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
                         <td><a href="{{ MakeURL $.QueryString "/namespace/detail" "name" .Namespace }}" class="deployment-link">{{ .Namespace }}</a></td>
                         <td><a href="{{ MakeURL $.QueryString "/cluster/detail" "cluster_name" .Cluster }}" class="deployment-link">{{ .Cluster }}</a></td>
@@ -106,7 +117,7 @@
                     </tr>
                     {{ else }}
                     <tr>
-                        <td colspan="6" class="no-data">No ReplicaSets found.</td>
+                        <td colspan="7" class="no-data">No ReplicaSets found.</td>
                     </tr>
                     {{ end }}
                 </tbody>
@@ -116,5 +127,16 @@
     </main>
 
     <script src="/static/js/table_utils.js"></script>
+    <style>
+        .status-icon { width: 20px; height: 20px; vertical-align: middle; }
+        .status-success { color: #10b981; }
+        .status-warning { color: #f59e0b; }
+        .status-error { color: #ef4444; }
+        .status-info { color: #22d3ee; }
+        .status-muted { color: #9ca3af; }
+        .legend-color { border-radius: 50%; }
+        .cluster-tag, .namespace-tag, .image-tag, .strategy-tag { border-radius: 12px; }
+        .status-icon { border-radius: 50%; }
+    </style>
 </body>
 </html>

@@ -209,6 +209,8 @@ type ReplicaSetInfo struct {
 	Owner             string
 	Age               string
 	CreationTimestamp time.Time
+	Replicas          int
+	ReadyReplicas     int
 }
 
 // ReplicaSetPageData is the main data object for the replicasets.html template

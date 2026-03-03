@@ -73,6 +73,7 @@
             <table id="mainTable">
                 <thead id="tableHeader">
                     <tr>
+                        <th class="sortable-header sort-asc" data-sort-type="string" style="width: 50px; text-align: center;"></th>
                         <th class="sortable-header" data-sort-type="string">Deployment</th>
                         <th class="sortable-header" data-sort-type="number" data-sort-key="ready">Ready</th>
                         <th class="sortable-header col-tags" data-sort-type="string">Images</th>
@@ -84,6 +85,16 @@
                 <tbody id="tableBody">
                     {{ range .Deployments }}
                     <tr>
+                        <td style="text-align: center;">
+                            <span style="display:none;">{{ if eq .TotalReadyReplicas .TotalDesiredReplicas }}Ready{{ else }}Not Ready{{ end }}</span>
+                            <div title="{{ if eq .TotalReadyReplicas .TotalDesiredReplicas }}Ready{{ else }}Not Ready{{ end }}">
+                                {{ if eq .TotalReadyReplicas .TotalDesiredReplicas }}
+                                    <svg class="status-icon status-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                {{ else }}
+                                    <svg class="status-icon status-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01" /></svg>
+                                {{ end }}
+                            </div>
+                        </td>
                         <td>
                             <a href="{{ MakeURL $.QueryString "/deployment/detail" "name" .Name }}" class="deployment-link">
                                 {{ .Name }}
@@ -113,7 +124,7 @@
                     </tr>
                     {{ else }}
                     <tr>
-                        <td colspan="6" class="no-data">No deployments found.</td>
+                        <td colspan="7" class="no-data">No deployments found.</td>
                     </tr>
                     {{ end }}
                 </tbody>
@@ -130,6 +141,12 @@
     <script>
         // --- Page-Specific Logic (Charts) ---
         document.addEventListener('DOMContentLoaded', function() {
+            // Default sort by Status (Ascending -> "Not Ready" before "Ready")
+            const table = document.getElementById('mainTable');
+            if (table) {
+                sortRows(table.querySelector('tbody'), 0, 'string', true);
+            }
+
             // --- TREEMAP LOGIC ---
             const ctx = document.getElementById('treemapChart');
             if (ctx) {
@@ -231,5 +248,16 @@
             }
         });
     </script>
+    <style>
+        .status-icon { width: 20px; height: 20px; vertical-align: middle; }
+        .status-success { color: #10b981; }
+        .status-warning { color: #f59e0b; }
+        .status-error { color: #ef4444; }
+        .status-info { color: #22d3ee; }
+        .status-muted { color: #9ca3af; }
+        .legend-color { border-radius: 50%; }
+        .cluster-tag, .namespace-tag, .image-tag, .strategy-tag { border-radius: 12px; }
+        .status-icon { border-radius: 50%; }
+    </style>
 </body>
 </html>
