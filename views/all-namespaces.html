@@ -31,15 +31,7 @@
                             {{ $color := index $colors (mod $i 10) }}
                             <div class="bar-segment" 
                                  style="width: {{ printf "%.2f" (fdiv .Count $totalClusters | mulf 100.0) }}%; background-color: {{ $color }}; box-shadow: 0 0 10px 0px {{ $color }};"
-                                 title="{{ .Name }}: {{ .Count }}"></div>
-                        {{ end }}
-                    </div>
-                    <div class="chart-legend">
-                        {{ range $i, $stat := .ClusterStats }}
-                        <div class="legend-item">
-                            <span class="legend-color" style="background-color: {{ index $colors (mod $i 10) }};"></span>
-                            {{ .Name }} ({{ .Count }})
-                        </div>
+                                 data-tooltip="{{ .Name }}: {{ .Count }}"></div>
                         {{ end }}
                     </div>
                 </div>
@@ -127,6 +119,32 @@
 
     </main>
 
+    <div id="global-tooltip"></div>
+
     <script src="/static/js/table_utils.js"></script>
+    <script>
+        const tooltip = document.getElementById('global-tooltip');
+        document.querySelectorAll('.bar-segment').forEach(el => {
+            el.addEventListener('mouseenter', e => {
+                let text = el.getAttribute('data-tooltip');
+                if (!text && el.getAttribute('title')) {
+                    text = el.getAttribute('title');
+                    el.setAttribute('data-tooltip', text);
+                    el.removeAttribute('title'); // Prevent native tooltip
+                }
+                if (text) {
+                    tooltip.textContent = text;
+                    tooltip.style.opacity = '1';
+                }
+            });
+            el.addEventListener('mousemove', e => {
+                tooltip.style.left = (e.clientX + 15) + 'px';
+                tooltip.style.top = (e.clientY + 15) + 'px';
+            });
+            el.addEventListener('mouseleave', () => {
+                tooltip.style.opacity = '0';
+            });
+        });
+    </script>
 </body>
 </html>

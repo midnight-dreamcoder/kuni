@@ -16,7 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sversion "k8s.io/apimachinery/pkg/version"
-	"k8s.io/client-go/kubernetes" 
+	"k8s.io/client-go/kubernetes"
 )
 
 // handleGetClusters renders the list immediately
@@ -39,15 +39,15 @@ func handleGetClusters(pattern string) echo.HandlerFunc {
 		for _, s := range selectedQuery {
 			selectedClustersMap[s] = true
 		}
-		
+
 		// REMOVED: base.SelectedClusters = selectedClustersMap (Invalid field on PageBase)
 
 		var clusters []ClusterInfo
 		for _, cfg := range configs {
 			clusters = append(clusters, ClusterInfo{
 				Name:       cfg.ContextName,
-				ConfigName: cfg.Name, 
-				Status:     "Pending", 
+				ConfigName: cfg.Name,
+				Status:     "Pending",
 				Latency:    "-",
 				Version:    "-",
 				Provider:   "...",
@@ -86,7 +86,7 @@ func handleGetClusterStatusAPI(pattern string) echo.HandlerFunc {
 		start := time.Now()
 		versionInfo, err := clientset.Discovery().ServerVersion()
 		latency := time.Since(start)
-		
+
 		info := ClusterInfo{
 			Name:    clusterName,
 			Status:  "Online",
@@ -101,7 +101,7 @@ func handleGetClusterStatusAPI(pattern string) echo.HandlerFunc {
 		var typedVersion *k8sversion.Info
 		typedVersion = versionInfo
 		info.Version = typedVersion.GitVersion
-		
+
 		if strings.Contains(info.Version, "-eks-") {
 			info.Provider = "AWS (EKS)"
 		} else if strings.Contains(info.Version, "-gke") {
@@ -127,7 +127,7 @@ func handleGetClusterStatusAPI(pattern string) echo.HandlerFunc {
 				}
 			}
 		}
-		
+
 		if config.Host != "" {
 			info.ApiServer = strings.TrimPrefix(strings.TrimPrefix(config.Host, "https://"), "http://")
 		}
@@ -189,7 +189,7 @@ func handleGetClusterDetail(pattern string) echo.HandlerFunc {
 			base.ErrorLogs = append(base.ErrorLogs, err.Error())
 			return c.Render(200, "cluster-detail.html", ClusterDetailPageData{PageBase: base})
 		}
-		
+
 		data := ClusterDetailPageData{
 			PageBase:   base,
 			Namespaces: make([]string, 0),
@@ -358,7 +358,7 @@ func handleGetClusterOverview(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Use Helper
 		base := GetBaseData(c, "Cluster Overview", "overview")
-		
+
 		configsToProcess, err := getConfigsToProcess(c, pattern)
 		if err != nil {
 			return c.String(500, "Error finding configs")
@@ -366,7 +366,7 @@ func handleGetClusterOverview(pattern string) echo.HandlerFunc {
 
 		clients, clientErrors := createClients(configsToProcess)
 		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
-		
+
 		if len(configsToProcess) == 0 {
 			base.ErrorLogs = append(base.ErrorLogs, fmt.Sprintf("No clusters selected or found matching pattern '%s'", pattern))
 		}
@@ -384,22 +384,24 @@ func handleGetClusterOverview(pattern string) echo.HandlerFunc {
 				ClusterName: client.ContextName,
 				PVStat:      make(map[string]int),
 			}
-			
+
 			var clusterCapCpu, clusterAllocCpu, clusterUsageCpu resource.Quantity
 			var clusterCapMem, clusterAllocMem, clusterUsageMem resource.Quantity
 			var subWg sync.WaitGroup
 			var subMutex sync.Mutex
-			
+
 			subWg.Add(3)
 
 			go func() {
 				defer subWg.Done()
 				nodeList, err := client.Clientset.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
-				if err != nil { return }
-				
+				if err != nil {
+					return
+				}
+
 				subMutex.Lock()
 				defer subMutex.Unlock()
-				
+
 				for _, node := range nodeList.Items {
 					result.NodeStat.Total++
 					status, _ := getNodeStatus(node)
@@ -418,11 +420,13 @@ func handleGetClusterOverview(pattern string) echo.HandlerFunc {
 			go func() {
 				defer subWg.Done()
 				pvList, err := client.Clientset.CoreV1().PersistentVolumes().List(context.Background(), metav1.ListOptions{})
-				if err != nil { return }
-				
+				if err != nil {
+					return
+				}
+
 				subMutex.Lock()
 				defer subMutex.Unlock()
-				
+
 				result.TotalPVs = len(pvList.Items)
 				for _, pv := range pvList.Items {
 					result.PVStat[string(pv.Status.Phase)]++
@@ -432,13 +436,17 @@ func handleGetClusterOverview(pattern string) echo.HandlerFunc {
 			go func() {
 				defer subWg.Done()
 				metricsClient, err := findMetricsClient(pattern, client.ContextName)
-				if err != nil { return }
+				if err != nil {
+					return
+				}
 				metricsList, err := metricsClient.MetricsV1beta1().NodeMetricses().List(context.Background(), metav1.ListOptions{})
-				if err != nil { return }
-				
+				if err != nil {
+					return
+				}
+
 				subMutex.Lock()
 				defer subMutex.Unlock()
-				
+
 				for _, metrics := range metricsList.Items {
 					clusterUsageCpu.Add(*metrics.Usage.Cpu())
 					clusterUsageMem.Add(*metrics.Usage.Memory())
@@ -512,30 +520,68 @@ func handleGetNodes(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Use Helper
 		base := GetBaseData(c, "All Nodes", "nodes")
-		
+
 		configsToProcess, err := getConfigsToProcess(c, pattern)
-		if err != nil { return c.String(500, "Error finding configs") }
-		
+		if err != nil {
+			return c.String(500, "Error finding configs")
+		}
+
 		clients, _ := createClients(configsToProcess)
-		
-		type nodeFetchResult struct { ClusterName string; Items []NodeInfo }
+
+		type nodeFetchResult struct {
+			ClusterName string
+			Items       []NodeInfo
+		}
 		fetchNodes := func(client KubeClient) (nodeFetchResult, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			list, err := client.Clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-			if err != nil { return nodeFetchResult{}, err }
+			if err != nil {
+				return nodeFetchResult{}, err
+			}
 			var nodes []NodeInfo
 			for _, node := range list.Items {
 				status, reason := getNodeStatus(node)
-				sched := "Enabled"; if node.Spec.Unschedulable { sched = "Disabled" }
-				nodes = append(nodes, NodeInfo{Cluster: client.ContextName, Name: node.Name, Status: status, Reason: reason, Schedulable: sched, Kubelet: node.Status.NodeInfo.KubeletVersion})
+				sched := "Enabled"
+				if node.Spec.Unschedulable {
+					sched = "Disabled"
+				}
+				role := "Worker"
+				if _, ok := node.Labels["node-role.kubernetes.io/control-plane"]; ok {
+					role = "Control-Plane"
+				} else if _, ok := node.Labels["node-role.kubernetes.io/master"]; ok {
+					role = "Control-Plane"
+				} else if val, ok := node.Labels["kubernetes.io/role"]; ok {
+					if val == "master" || val == "control-plane" {
+						role = "Control-Plane"
+					}
+				}
+				nodes = append(nodes, NodeInfo{
+					Cluster:     client.ContextName,
+					Name:        node.Name,
+					Status:      status,
+					Reason:      reason,
+					Schedulable: sched,
+					Kubelet:     node.Status.NodeInfo.KubeletVersion,
+					Role:        role,
+					Runtime:     node.Status.NodeInfo.ContainerRuntimeVersion,
+					CpuAlloc:    formatCpu(node.Status.Allocatable.Cpu()),
+					MemAlloc:    formatMemory(node.Status.Allocatable.Memory()),
+					Taints:      len(node.Spec.Taints),
+				})
 			}
 			return nodeFetchResult{ClusterName: client.ContextName, Items: nodes}, nil
 		}
 		results, _ := ParallelFetch(clients, fetchNodes)
-		var allNodes []NodeInfo; cDist := make(map[string]int)
-		for _, res := range results { for _, n := range res.Items { allNodes = append(allNodes, n); cDist[res.ClusterName]++ } }
-		
+		var allNodes []NodeInfo
+		cDist := make(map[string]int)
+		for _, res := range results {
+			for _, n := range res.Items {
+				allNodes = append(allNodes, n)
+				cDist[res.ClusterName]++
+			}
+		}
+
 		// Calculate stats
 		statusDist := make(map[string]int)
 		schedDist := make(map[string]int)
@@ -543,7 +589,7 @@ func handleGetNodes(pattern string) echo.HandlerFunc {
 			statusDist[node.Status]++
 			schedDist[node.Schedulable]++
 		}
-		
+
 		var sStats []PodStatusStat
 		for k, v := range statusDist {
 			sStats = append(sStats, PodStatusStat{Status: k, Count: v})
@@ -556,7 +602,11 @@ func handleGetNodes(pattern string) echo.HandlerFunc {
 		}
 		sort.Slice(schedStats, func(i, j int) bool { return schedStats[i].Count > schedStats[j].Count })
 
-		var cStats []ClusterStat; for k, v := range cDist { cStats = append(cStats, ClusterStat{Name: k, Count: v}) }; sort.Slice(cStats, func(i, j int) bool { return cStats[i].Name < cStats[j].Name })
+		var cStats []ClusterStat
+		for k, v := range cDist {
+			cStats = append(cStats, ClusterStat{Name: k, Count: v})
+		}
+		sort.Slice(cStats, func(i, j int) bool { return cStats[i].Name < cStats[j].Name })
 		return c.Render(200, "nodes.html", NodePageData{PageBase: base, Nodes: allNodes, TotalNodes: len(allNodes), ClusterStats: cStats, StatusStats: sStats, SchedStats: schedStats})
 	}
 }
@@ -566,20 +616,22 @@ func handleGetNodeDetail(pattern string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		clusterContextName := c.QueryParam("cluster_name")
 		nodeName := c.QueryParam("name")
-		
+
 		// Use Helper
 		base := GetBaseData(c, nodeName, "nodes")
 
 		clientset, err := findClient(pattern, clusterContextName)
-		if err != nil { return c.Render(200, "node-detail.html", NodeDetailPageData{PageBase: base}) }
-		
+		if err != nil {
+			return c.Render(200, "node-detail.html", NodeDetailPageData{PageBase: base})
+		}
+
 		data := NodeDetailPageData{PageBase: base, ClusterName: clusterContextName, NodeName: nodeName, Capacity: make(map[string]string), Allocatable: make(map[string]string)}
-		
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) 
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		
+
 		var wg sync.WaitGroup
-		wg.Add(2) 
+		wg.Add(2)
 
 		// 1. Fetch Node Info & Pods
 		go func() {
@@ -591,48 +643,72 @@ func handleGetNodeDetail(pattern string) echo.HandlerFunc {
 				data.ContainerRuntime = node.Status.NodeInfo.ContainerRuntimeVersion
 				data.ProviderID = node.Spec.ProviderID
 				data.Age = formatAge(node.CreationTimestamp)
-				
+
+				role := "Worker"
+				if _, ok := node.Labels["node-role.kubernetes.io/control-plane"]; ok {
+					role = "Control-Plane"
+				} else if _, ok := node.Labels["node-role.kubernetes.io/master"]; ok {
+					role = "Control-Plane"
+				} else if val, ok := node.Labels["kubernetes.io/role"]; ok {
+					if val == "master" || val == "control-plane" {
+						role = "Control-Plane"
+					}
+				}
+				data.Role = role
+
 				// Addresses
 				for _, addr := range node.Status.Addresses {
 					data.Addresses = append(data.Addresses, NodeAddressInfo{Type: string(addr.Type), Address: addr.Address})
 				}
-				
+
 				// Taints
 				for _, t := range node.Spec.Taints {
 					data.Taints = append(data.Taints, NodeTaintInfo{Key: t.Key, Value: t.Value, Effect: string(t.Effect)})
 				}
-				
+
 				// Labels & Annotations
 				data.Labels = node.Labels
 				data.Annotations = node.Annotations
-				
+
 				// Conditions
 				for _, c := range node.Status.Conditions {
 					data.Conditions = append(data.Conditions, PodConditionInfo{Type: string(c.Type), Status: string(c.Status), Reason: c.Reason, Message: c.Message, LastHeartbeat: formatAge(c.LastHeartbeatTime)})
 				}
-				
+
 				// Capacity / Allocatable
-				for k, v := range node.Status.Capacity { data.Capacity[string(k)] = v.String() }
-				for k, v := range node.Status.Allocatable { data.Allocatable[string(k)] = v.String() }
-				
+				for k, v := range node.Status.Capacity {
+					data.Capacity[string(k)] = v.String()
+				}
+				for k, v := range node.Status.Allocatable {
+					data.Allocatable[string(k)] = v.String()
+				}
+
 				// Resources
-				capCpu := node.Status.Capacity.Cpu(); capMem := node.Status.Capacity.Memory()
-				allocCpu := node.Status.Allocatable.Cpu(); allocMem := node.Status.Allocatable.Memory()
-				data.Resources.CapacityCpu = formatCpu(capCpu); data.Resources.CapacityMem = formatMemory(capMem)
-				data.Resources.AllocatableCpu = formatCpu(allocCpu); data.Resources.AllocatableMem = formatMemory(allocMem)
-				
+				capCpu := node.Status.Capacity.Cpu()
+				capMem := node.Status.Capacity.Memory()
+				allocCpu := node.Status.Allocatable.Cpu()
+				allocMem := node.Status.Allocatable.Memory()
+				data.Resources.CapacityCpu = formatCpu(capCpu)
+				data.Resources.CapacityMem = formatMemory(capMem)
+				data.Resources.AllocatableCpu = formatCpu(allocCpu)
+				data.Resources.AllocatableMem = formatMemory(allocMem)
+
 				// Pods on Node
 				fieldSelector := "spec.nodeName=" + nodeName
 				pods, _ := clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{FieldSelector: fieldSelector})
-				
+
 				var usageCpu, usageMem resource.Quantity
 				for _, p := range pods.Items {
 					readyCount := 0
-					for _, cs := range p.Status.ContainerStatuses { if cs.Ready { readyCount++ } }
+					for _, cs := range p.Status.ContainerStatuses {
+						if cs.Ready {
+							readyCount++
+						}
+					}
 					ready := fmt.Sprintf("%d/%d", readyCount, len(p.Spec.Containers))
-					
+
 					data.Pods = append(data.Pods, PodInfo{
-						Namespace: p.Namespace, Name: p.Name, Status: string(p.Status.Phase), Ready: ready,
+						Cluster: clusterContextName, Namespace: p.Namespace, Name: p.Name, Status: string(p.Status.Phase), Ready: ready,
 					})
 					// Estimate usage from requests
 					for _, c := range p.Spec.Containers {
@@ -642,18 +718,18 @@ func handleGetNodeDetail(pattern string) echo.HandlerFunc {
 				}
 				data.Resources.UsageCpu = formatCpu(&usageCpu)
 				data.Resources.UsageMem = formatMemory(&usageMem)
-				
+
 				if capCpu.MilliValue() > 0 {
-					data.Resources.AllocatableCpuPercent = (float64(allocCpu.MilliValue())/float64(capCpu.MilliValue()))*100
-					data.Resources.UsageCpuPercent = (float64(usageCpu.MilliValue())/float64(capCpu.MilliValue()))*100
+					data.Resources.AllocatableCpuPercent = (float64(allocCpu.MilliValue()) / float64(capCpu.MilliValue())) * 100
+					data.Resources.UsageCpuPercent = (float64(usageCpu.MilliValue()) / float64(capCpu.MilliValue())) * 100
 				}
 				if capMem.Value() > 0 {
-					data.Resources.AllocatableMemPercent = (float64(allocMem.Value())/float64(capMem.Value()))*100
-					data.Resources.UsageMemPercent = (float64(usageMem.Value())/float64(capMem.Value()))*100
+					data.Resources.AllocatableMemPercent = (float64(allocMem.Value()) / float64(capMem.Value())) * 100
+					data.Resources.UsageMemPercent = (float64(usageMem.Value()) / float64(capMem.Value())) * 100
 				}
 			}
 		}()
-		
+
 		// 2. Fetch Events
 		go func() {
 			defer wg.Done()
@@ -671,7 +747,7 @@ func handleGetNodeDetail(pattern string) echo.HandlerFunc {
 				}
 			}
 		}()
-		
+
 		wg.Wait()
 		return c.Render(200, "node-detail.html", data)
 	}
