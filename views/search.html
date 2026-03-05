@@ -14,8 +14,12 @@
         <h1>Global Search</h1>
 
         <div class="search-container" style="max-width: 800px;">
-            <form id="searchForm" style="display: flex; gap: 1rem;">
-                <input type="text" id="queryInput" name="q" value="{{ .Query }}" class="input-dark" placeholder="Enter regex (e.g. ^prod-.*-db$)..." autofocus>
+            <form id="searchForm" style="display: flex; gap: 1rem; align-items: center;">
+                <input type="text" id="queryInput" name="q" value="{{ .Query }}" class="input-dark" placeholder="Enter regex (e.g. ^prod-.*-db$)..." autofocus style="flex-grow: 1;">
+                <div style="display: flex; align-items: center; gap: 0.5rem; color: #9ca3af; font-size: 0.9rem; white-space: nowrap;">
+                    <input type="checkbox" id="includeHeavy" name="heavy">
+                    <label for="includeHeavy" title="Includes Secrets and ConfigMaps. Warning: High Bandwidth usage.">Include Config/Secrets</label>
+                </div>
                 <button type="submit" class="btn btn-primary" id="searchBtn">Search</button>
             </form>
         </div>
@@ -51,6 +55,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             const form = document.getElementById('searchForm');
             const queryInput = document.getElementById('queryInput');
+            const includeHeavy = document.getElementById('includeHeavy');
             const resultsBody = document.getElementById('resultsBody');
             const statusContainer = document.getElementById('statusContainer');
             const statusText = document.getElementById('statusText');
@@ -61,6 +66,9 @@
             // If page loaded with a query param (e.g. from a link), auto-search
             const urlParams = new URLSearchParams(window.location.search);
             const initialQuery = urlParams.get('q');
+            if (urlParams.get('heavy') === 'true' && includeHeavy) {
+                includeHeavy.checked = true;
+            }
             if (initialQuery) {
                 queryInput.value = initialQuery;
                 performSearch(initialQuery);
@@ -74,6 +82,11 @@
                 // Update URL without reloading
                 const url = new URL(window.location);
                 url.searchParams.set('q', query);
+                if (includeHeavy && includeHeavy.checked) {
+                    url.searchParams.set('heavy', 'true');
+                } else {
+                    url.searchParams.delete('heavy');
+                }
                 window.history.pushState({}, '', url);
                 
                 performSearch(query);
@@ -96,15 +109,23 @@
                     // Group 3: Network
                     "service,ingress",
                     // Group 4: Config & Storage
-                    "configmap,secret,serviceaccount,pv,pvc"
+                    "serviceaccount,pv,pvc"
                 ];
                 
+                if (includeHeavy && includeHeavy.checked) {
+                    resourceGroups.push("configmap,secret");
+                }
+
                 let activeRequests = resourceGroups.length;
                 let totalResults = 0;
 
                 resourceGroups.forEach(group => {
                     // Send comma-separated list to backend
-                    const url = `/api/search?q=${encodeURIComponent(query)}&type=${group}{{ .QueryString }}`;
+                    // Fix: Ensure we append QueryString correctly (replace leading ? with & if needed)
+                    let qs = "{{ .QueryString }}";
+                    if (qs.startsWith("?")) qs = "&" + qs.substring(1);
+                    
+                    const url = `/api/search?q=${encodeURIComponent(query)}&type=${group}` + qs;
                     
                     fetch(url)
                         .then(response => {

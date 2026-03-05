@@ -65,7 +65,7 @@ h1 {
     font-size: 2.25rem;
     font-weight: 700;
     color: var(--text-inverse);
-    text-shadow: 0 0 15px rgba(34, 211, 238, 0.5);
+    text-shadow: 0 0 10px rgba(34, 211, 238, 0.3);
 }
 .page-subtitle {
     font-size: 1.1rem;
@@ -99,7 +99,7 @@ a:hover { text-decoration: underline; }
     padding: 1.5rem 1rem 1rem;
     text-align: center;
     border-bottom: 1px solid var(--border);
-    box-shadow: 0 4px 15px -5px rgba(0, 255, 156, 0.4);
+    box-shadow: 0 2px 10px -5px rgba(0, 255, 156, 0.3);
     flex-shrink: 0;
 }
 .sidebar-header .header-main {
@@ -107,7 +107,7 @@ a:hover { text-decoration: underline; }
     font-size: 1.75rem;
     font-weight: 700;
     color: #00ff9c;
-    text-shadow: 0 0 15px rgba(34, 211, 238, 3);
+    text-shadow: 0 0 12px rgba(0, 255, 156, 0.5);
 }
 .sidebar-header .header-sub {
     display: block;
@@ -254,16 +254,21 @@ th.sortable-header.sort-asc::after { content: ' \25b2'; color: var(--primary); o
 
 /* Table Columns */
 #mainTable th, #mainTable td { white-space: normal !important; }
-#mainTable .col-pod, #mainTable .col-cluster, #mainTable .col-namespace, #mainTable .col-svc, #mainTable .col-cm, #mainTable .col-ns, #mainTable .col-clusters { word-break: break-all; }
+#mainTable .col-pod, #mainTable .col-cluster, #mainTable .col-namespace, #mainTable .col-svc, #mainTable .col-cm, #mainTable .col-ns { word-break: break-all; }
 #mainTable .col-tags { max-width: 350px; word-break: break-all; }
+#mainTable .col-clusters { 
+    width: 70%;
+    white-space: normal !important;
+}
 .col-pod-name { white-space: normal !important; word-break: break-all; max-width: 300px; min-width: 150px; }
 td.api-server { white-space: normal !important; word-break: break-all; max-width: 300px; min-width: 200px; font-size: 0.85rem; color: var(--text-muted); }
 
 /* --- 7. Tags & Links --- */
 .deployment-link { font-weight: 600; color: var(--primary); text-decoration: none; }
 .deployment-link:hover { text-decoration: underline; }
+.cluster-row .deployment-link { font-weight: 500; font-size: 1.1rem; font-family: var(--font-main); }
 .tag-base { display: inline-block; padding: 0.25rem 0.6rem; border-radius: 4px; font-size: 0.85rem; font-weight: 500; margin-right: 6px; margin-bottom: 6px; white-space: nowrap; }
-.cluster-tag { background-color: rgba(34, 211, 238, 0.1); color: var(--primary); @extend .tag-base; }
+.cluster-tag { background-color: transparent; color: var(--primary); @extend .tag-base; }
 .namespace-tag { background-color: rgba(245, 158, 11, 0.1); color: var(--warning); transition: all 0.2s ease; @extend .tag-base; }
 .image-tag { display: block; background-color: var(--bg-hover); color: var(--text-main); padding: 0.25rem 0.6rem; border-radius: 4px; font-size: 0.85rem; font-weight: 400; margin-bottom: 4px; white-space: normal; }
 .strategy-tag { background-color: rgba(155, 89, 182, 0.1); color: var(--purple); @extend .tag-base; }
@@ -272,6 +277,8 @@ td.api-server { white-space: normal !important; word-break: break-all; max-width
 .cluster-name { font-weight: 600; }
 .reason-col { color: #f87171; font-weight: 500; }
 .tag-link { text-decoration: none; }
+.tag-link:hover { text-decoration: none; }
+.tag-link:hover .cluster-tag { text-decoration: underline; text-underline-offset: 2px; }
 .tag-link:hover .namespace-tag { transform: scale(1.05); box-shadow: 0 2px 4px rgba(0,0,0,0.1); color: var(--text-dark); background-color: var(--warning); }
 
 /* --- 8. Status Badges --- */
@@ -307,24 +314,25 @@ td.api-server { white-space: normal !important; word-break: break-all; max-width
 .bar-chart-list .bar-label-other { font-weight: 700; font-style: italic; color: var(--text-muted); }
 
 /* Bar Colors */
-.bar-segment.status-ready, .bar-segment.status-active, .bar-segment.status-running, .bar-segment.sched-enabled, .bar-segment.ready { background: var(--success); box-shadow: 0 0 10px var(--success); }
-.bar-segment.status-notready, .bar-segment.status-terminating, .bar-segment.status-failed, .bar-segment.not-ready { background: var(--danger); box-shadow: 0 0 10px var(--danger); }
-.bar-segment.status-pending, .bar-segment.sched-disabled, .bar-segment.usage { background: var(--warning); box-shadow: 0 0 10px var(--warning); }
-.bar-segment.status-succeeded, .bar-segment.allocatable { background: var(--primary); box-shadow: 0 0 10px var(--primary); }
-.bar-segment.status-crashloopbackoff, .bar-segment.status-oomkilled { background: #dc2626; box-shadow: 0 0 10px #dc2626; }
-.bar-segment.status-imagepullbackoff, .bar-segment.status-errimagepull { background: #f97316; box-shadow: 0 0 10px #f97316; }
-.bar-segment.status-containercreating { background: #8b5cf6; box-shadow: 0 0 10px #8b5cf6; }
-.bar-segment.status-completed { background: #3b82f6; box-shadow: 0 0 10px #3b82f6; }
-.bar-segment.status-unknown { background: var(--text-muted); box-shadow: 0 0 10px var(--text-muted); }
+.bar-segment.status-ready, .bar-segment.status-active, .bar-segment.status-running, .bar-segment.sched-enabled, .bar-segment.ready, .bar-segment.status-bound { background: var(--success); box-shadow: 0 0 6px var(--success); }
+.bar-segment.status-notready, .bar-segment.status-terminating, .bar-segment.status-failed, .bar-segment.not-ready { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+.bar-segment.status-pending, .bar-segment.sched-disabled, .bar-segment.usage, .bar-segment.status-released { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+.bar-segment.status-succeeded, .bar-segment.allocatable, .bar-segment.status-available { background: var(--primary); box-shadow: 0 0 6px var(--primary); }
+.bar-segment.status-crashloopbackoff, .bar-segment.status-oomkilled { background: #dc2626; box-shadow: 0 0 6px #dc2626; }
+.bar-segment.status-imagepullbackoff, .bar-segment.status-errimagepull { background: #f97316; box-shadow: 0 0 6px #f97316; }
+.bar-segment.status-containercreating { background: #8b5cf6; box-shadow: 0 0 6px #8b5cf6; }
+.bar-segment.status-completed { background: #3b82f6; box-shadow: 0 0 6px #3b82f6; }
+.bar-segment.status-unknown { background: var(--text-muted); box-shadow: 0 0 6px var(--text-muted); }
 
 /* Legend Dots */
-.legend-color.status-running { background-color: var(--success); }
-.legend-color.status-pending { background-color: var(--warning); }
+.legend-color.status-running, .legend-color.status-bound { background-color: var(--success); }
+.legend-color.status-pending, .legend-color.status-released { background-color: var(--warning); }
 .legend-color.status-failed, .legend-color.status-error { background-color: var(--danger); }
 .legend-color.status-crashloopbackoff, .legend-color.status-oomkilled { background-color: #dc2626; }
 .legend-color.status-imagepullbackoff, .legend-color.status-errimagepull { background-color: #f97316; }
 .legend-color.status-containercreating { background-color: #8b5cf6; }
-.legend-color.status-completed, .legend-color.status-succeeded { background-color: #3b82f6; }
+.legend-color.status-completed { background-color: #3b82f6; }
+.legend-color.status-succeeded, .legend-color.status-available { background-color: var(--primary); }
 .legend-color.status-terminating { background-color: #9ca3af; }
 .legend-color.status-unknown { background-color: #6b7280; }
 
@@ -410,7 +418,7 @@ td.api-server { white-space: normal !important; word-break: break-all; max-width
 .ns-pills { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .ns-btn { background: transparent; border: 1px solid #4c1d95; color: var(--purple-light); padding: 0.35rem 0.8rem; border-radius: 20px; font-size: 0.85rem; font-family: var(--font-mono); cursor: pointer; transition: all 0.2s ease; }
 .ns-btn:hover { background: rgba(139, 92, 246, 0.1); color: #fff; }
-.ns-btn.active { background: var(--purple-dark); border-color: var(--purple-dark); color: #fff; font-weight: 600; box-shadow: 0 0 10px rgba(124, 58, 237, 0.4); }
+.ns-btn.active { background: var(--purple-dark); border-color: var(--purple-dark); color: #fff; font-weight: 600; box-shadow: 0 0 8px rgba(124, 58, 237, 0.3); }
 .pods-tbody { display: none; }
 .pods-tbody.active { display: table-row-group; animation: simpleFade 0.25s ease-in-out; }
 @keyframes simpleFade { from { opacity: 0; } to { opacity: 1; } }
@@ -482,6 +490,12 @@ tbody tr.row-selected:hover { background-color: var(--bg-hover); }
 .btn-accent { background-color: var(--warning); color: var(--text-dark); }
 
 /* --- 14. Heatmap Levels --- */
+.heatmap td.heat-0 { background-color: transparent; color: var(--text-muted); }
+.heatmap td.heat-1 { background-color: rgba(239, 68, 68, 0.2); color: var(--text-main); }
+.heatmap td.heat-2 { background-color: rgba(239, 68, 68, 0.4); color: var(--text-main); }
+.heatmap td.heat-3 { background-color: rgba(239, 68, 68, 0.7); color: white; }
+.heatmap td.heat-4 { background-color: rgba(239, 68, 68, 1.0); color: white; font-weight: 700; }
+.heatmap td { position: relative; }
 .heatmap td.heat-0 { background-color: transparent; color: var(--text-muted); }
 .heatmap td.heat-1 { background-color: rgba(239, 68, 68, 0.2); color: var(--text-main); }
 .heatmap td.heat-2 { background-color: rgba(239, 68, 68, 0.4); color: var(--text-main); }

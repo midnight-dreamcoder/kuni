@@ -114,8 +114,11 @@
             if (selectAll) {
                 selectAll.addEventListener('change', function() {
                     checkboxes.forEach((cb) => {
-                        cb.checked = this.checked;
-                        updateRowStyle(cb);
+                        const row = cb.closest('tr');
+                        if (row && row.style.display !== 'none') {
+                            cb.checked = this.checked;
+                            updateRowStyle(cb);
+                        }
                     });
                 });
             }
