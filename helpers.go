@@ -1,0 +1,837 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"net/url"
+	"regexp"
+	"sync"
+	"time"
+
+	"github.com/labstack/echo/v4"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/duration"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	metrics "k8s.io/metrics/pkg/client/clientset/versioned"
+)
+
+// ParallelFetch abstracts the logic of querying multiple clusters concurrently.
+func ParallelFetch[T any](clients []KubeClient, fetchFn func(KubeClient) (T, error)) ([]T, []string) {
+	var wg sync.WaitGroup
+	var mutex sync.Mutex
+	results := make([]T, 0, len(clients))
+	errors := make([]string, 0)
+
+	for _, client := range clients {
+		wg.Add(1)
+		go func(c KubeClient) {
+			defer wg.Done()
+			res, err := fetchFn(c)
+
+			mutex.Lock()
+			defer mutex.Unlock()
+
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Cluster: %s | Error: %v", c.ContextName, err))
+			} else {
+				results = append(results, res)
+			}
+		}(client)
+	}
+	wg.Wait()
+	return results, errors
+}
+
+// formatAge is a helper function to create a human-readable "age" string
+func formatAge(t metav1.Time) string {
+	return duration.HumanDuration(time.Since(t.Time))
+}
+
+// formatMemory converts a resource.Quantity to a human-readable Gi/Mi string
+func formatMemory(q *resource.Quantity) string {
+	if q.IsZero() {
+		return "0"
+	}
+	valGi := float64(q.Value()) / (1024 * 1024 * 1024)
+	if valGi >= 1 {
+		return fmt.Sprintf("%.1f Gi", valGi)
+	}
+	valMi := float64(q.Value()) / (1024 * 1024)
+	return fmt.Sprintf("%.0f Mi", valMi)
+}
+
+// formatCpu converts a resource.Quantity to a human-readable core count
+func formatCpu(q *resource.Quantity) string {
+	if q.IsZero() {
+		return "0"
+	}
+	return fmt.Sprintf("%.2f", q.AsApproximateFloat64())
+}
+
+// getRequestFilter returns the count, clean query, and cache buster
+func getRequestFilter(c echo.Context) (int, string, string) {
+	selectedClusters := c.QueryParams()["c"]
+	uniqueClusters := make(map[string]bool)
+	var cleanClusterList []string
+	for _, cluster := range selectedClusters {
+		if !uniqueClusters[cluster] {
+			uniqueClusters[cluster] = true
+			cleanClusterList = append(cleanClusterList, cluster)
+		}
+	}
+	selectedCount := len(cleanClusterList)
+	var queryString string
+	if selectedCount > 0 {
+		v := url.Values{}
+		for _, cluster := range cleanClusterList {
+			v.Add("c", cluster)
+		}
+		queryString = "?" + v.Encode()
+	}
+	version := time.Now().UnixNano()
+	cacheBuster := fmt.Sprintf("?v=%d", version)
+	return selectedCount, queryString, cacheBuster
+}
+
+// getConfigsToProcess filters config files based on a list of NAMES (from query 'c')
+func getConfigsToProcess(c echo.Context, pattern string) ([]ClusterConfig, error) {
+	// For Lists, we use LoadAllConfigs (Files + DB)
+	allConfigs, err := LoadAllConfigs(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	selectedNames := c.QueryParams()["c"]
+	if len(selectedNames) == 0 {
+		return allConfigs, nil
+	}
+
+	allowedSet := make(map[string]bool)
+	for _, name := range selectedNames {
+		allowedSet[name] = true
+	}
+
+	var filtered []ClusterConfig
+	for _, cfg := range allConfigs {
+		// UPDATED: Match against 'ContextName' for granular selection
+		if allowedSet[cfg.ContextName] {
+			filtered = append(filtered, cfg)
+		}
+	}
+	return filtered, nil
+}
+
+// createClients loops through a list of ClusterConfigs and returns clients
+func createClients(configs []ClusterConfig) ([]KubeClient, []string) {
+	var clients []KubeClient
+	var errors []string
+
+	for _, cfg := range configs {
+		restConfig, err := cfg.ToRestConfig()
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("Cluster: %s | Error: Failed to build config (%v)", cfg.Name, err))
+			continue
+		}
+
+		clientset, err := kubernetes.NewForConfig(restConfig)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("Cluster: %s | Error: Failed to create clientset (%v)", cfg.Name, err))
+			continue
+		}
+
+		pathStr := "DB"
+		if cfg.IsFile {
+			pathStr = cfg.Path
+		}
+
+		clients = append(clients, KubeClient{
+			Clientset:   clientset,
+			ContextName: cfg.ContextName,
+			ConfigPath:  pathStr,
+		})
+	}
+	return clients, errors
+}
+
+// getPodReason extracts the most useful "Reason" from a pod's status
+func getPodReason(pod v1.Pod) string {
+	if pod.Status.Reason != "" {
+		return pod.Status.Reason
+	}
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
+			return cs.State.Waiting.Reason
+		}
+		if cs.State.Terminated != nil && cs.State.Terminated.Reason != "" {
+			return cs.State.Terminated.Reason
+		}
+	}
+	for _, cond := range pod.Status.Conditions {
+		if cond.Status != v1.ConditionTrue && cond.Reason != "" {
+			return cond.Reason
+		}
+	}
+	return ""
+}
+
+// getPodDisplayStatus determines the status string to show in the UI (e.g. CrashLoopBackOff)
+func getPodDisplayStatus(pod v1.Pod) string {
+	if pod.DeletionTimestamp != nil {
+		return "Terminating"
+	}
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
+			return cs.State.Waiting.Reason
+		}
+		if cs.State.Terminated != nil && cs.State.Terminated.Reason != "Completed" {
+			return cs.State.Terminated.Reason
+		}
+	}
+	return string(pod.Status.Phase)
+}
+
+// getNodeStatus extracts the Ready status from a node's conditions
+func getNodeStatus(node v1.Node) (string, string) {
+	for _, cond := range node.Status.Conditions {
+		if cond.Type == v1.NodeReady {
+			if cond.Status == v1.ConditionTrue {
+				return "Ready", ""
+			}
+			return "NotReady", cond.Reason
+		}
+	}
+	return "Unknown", ""
+}
+
+// findClient finds a single clientset based on a context name
+// Uses GetClusterConfig (Single/Specific Lookup)
+func findClient(pattern string, clusterContextName string) (*kubernetes.Clientset, error) {
+	cfg, err := GetClusterConfig(pattern, clusterContextName)
+	if err != nil {
+		return nil, err
+	}
+
+	restConfig, err := cfg.ToRestConfig()
+	if err != nil {
+		return nil, fmt.Errorf("error building config for %s: %v", clusterContextName, err)
+	}
+	return kubernetes.NewForConfig(restConfig)
+}
+
+// findMetricsClient finds a single metrics clientset based on a context name
+// Uses GetClusterConfig (Single/Specific Lookup)
+func findMetricsClient(pattern string, clusterContextName string) (*metrics.Clientset, error) {
+	cfg, err := GetClusterConfig(pattern, clusterContextName)
+	if err != nil {
+		return nil, err
+	}
+
+	restConfig, err := cfg.ToRestConfig()
+	if err != nil {
+		return nil, fmt.Errorf("error building config for %s: %v", clusterContextName, err)
+	}
+	return metrics.NewForConfig(restConfig)
+}
+
+// findConfigWithTimeout finds a config and applies a timeout (Used for status API)
+// Uses GetClusterConfig (Single/Specific Lookup)
+func findConfigWithTimeout(pattern string, clusterContextName string, timeout time.Duration) (*rest.Config, error) {
+	cfg, err := GetClusterConfig(pattern, clusterContextName)
+	if err != nil {
+		return nil, err
+	}
+
+	restConfig, err := cfg.ToRestConfig()
+	if err != nil {
+		return nil, err
+	}
+	restConfig.Timeout = timeout
+	return restConfig, nil
+}
+
+// --- Search Helper Functions ---
+
+func searchClusters(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for _, client := range clients {
+		if re.MatchString(client.ContextName) {
+			results <- SearchResult{
+				Type:    "Cluster",
+				Name:    client.ContextName,
+				Cluster: client.ContextName,
+				URL:     fmt.Sprintf("/cluster/detail?cluster_name=%s", url.QueryEscape(client.ContextName)),
+				Matches: []MatchInfo{{Field: "Context Name", Value: client.ContextName}},
+			}
+		}
+	}
+}
+
+func searchNamespaces(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var internalWg sync.WaitGroup
+	for _, client := range clients {
+		internalWg.Add(1)
+		go func(client KubeClient) {
+			defer internalWg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			nsList, err := client.Clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+			cancel()
+			if err != nil {
+				return
+			}
+			for _, ns := range nsList.Items {
+				if re.MatchString(ns.Name) {
+					results <- SearchResult{
+						Type:    "Namespace",
+						Name:    ns.Name,
+						Cluster: client.ContextName,
+						URL:     fmt.Sprintf("/namespace/detail?name=%s", url.QueryEscape(ns.Name)),
+						Status:  string(ns.Status.Phase),
+						Matches: []MatchInfo{{Field: "Name", Value: ns.Name}},
+					}
+				}
+			}
+		}(client)
+	}
+	internalWg.Wait()
+}
+
+func searchDeployments(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var internalWg sync.WaitGroup
+	for _, client := range clients {
+		internalWg.Add(1)
+		go func(client KubeClient) {
+			defer internalWg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			depList, err := client.Clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
+			cancel()
+			if err != nil {
+				return
+			}
+			for _, dep := range depList.Items {
+				var matches []MatchInfo
+				if re.MatchString(dep.Name) {
+					matches = append(matches, MatchInfo{Field: "Name", Value: dep.Name})
+				}
+				for _, container := range dep.Spec.Template.Spec.Containers {
+					if re.MatchString(container.Image) {
+						matches = append(matches, MatchInfo{Field: "Image", Value: container.Image})
+					}
+				}
+				if len(matches) > 0 {
+					var desiredReplicas int32 = 1
+					if dep.Spec.Replicas != nil {
+						desiredReplicas = *dep.Spec.Replicas
+					}
+					readyStr := fmt.Sprintf("%d/%d Ready", dep.Status.ReadyReplicas, desiredReplicas)
+					results <- SearchResult{
+						Type:      "Deployment",
+						Name:      dep.Name,
+						Cluster:   client.ContextName,
+						Namespace: dep.Namespace,
+						URL:       fmt.Sprintf("/deployment/detail?name=%s", url.QueryEscape(dep.Name)),
+						Info:      readyStr,
+						Matches:   matches,
+					}
+				}
+			}
+		}(client)
+	}
+	internalWg.Wait()
+}
+
+func searchPods(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var internalWg sync.WaitGroup
+	for _, client := range clients {
+		internalWg.Add(1)
+		go func(client KubeClient) {
+			defer internalWg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			podList, err := client.Clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+			cancel()
+			if err != nil {
+				return
+			}
+			for _, pod := range podList.Items {
+				var matches []MatchInfo
+				if re.MatchString(pod.Name) {
+					matches = append(matches, MatchInfo{Field: "Name", Value: pod.Name})
+				}
+				if pod.Status.PodIP != "" && re.MatchString(pod.Status.PodIP) {
+					matches = append(matches, MatchInfo{Field: "Pod IP", Value: pod.Status.PodIP})
+				}
+				if len(matches) > 0 {
+					restartCount := 0
+					for _, cs := range pod.Status.ContainerStatuses {
+						restartCount += int(cs.RestartCount)
+					}
+					restartStr := fmt.Sprintf("%d Restarts", restartCount)
+					results <- SearchResult{
+						Type:      "Pod",
+						Name:      pod.Name,
+						Cluster:   client.ContextName,
+						Namespace: pod.Namespace,
+						URL:       fmt.Sprintf("/pod/detail?cluster_name=%s&namespace=%s&name=%s", url.QueryEscape(client.ContextName), url.QueryEscape(pod.Namespace), url.QueryEscape(pod.Name)),
+						Status:    string(pod.Status.Phase),
+						Node:      pod.Spec.NodeName,
+						Info:      restartStr,
+						Matches:   matches,
+					}
+				}
+			}
+		}(client)
+	}
+	internalWg.Wait()
+}
+
+func searchReplicaSets(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var internalWg sync.WaitGroup
+	for _, client := range clients {
+		internalWg.Add(1)
+		go func(client KubeClient) {
+			defer internalWg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			rsList, err := client.Clientset.AppsV1().ReplicaSets("").List(ctx, metav1.ListOptions{})
+			cancel()
+			if err != nil {
+				return
+			}
+			for _, rs := range rsList.Items {
+				if re.MatchString(rs.Name) {
+					var desiredReplicas int32 = 1
+					if rs.Spec.Replicas != nil {
+						desiredReplicas = *rs.Spec.Replicas
+					}
+					readyStr := fmt.Sprintf("%d/%d Ready", rs.Status.ReadyReplicas, desiredReplicas)
+					results <- SearchResult{
+						Type:      "ReplicaSet",
+						Name:      rs.Name,
+						Cluster:   client.ContextName,
+						Namespace: rs.Namespace,
+						URL:       fmt.Sprintf("/replicaset/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(rs.Name), url.QueryEscape(rs.Namespace), url.QueryEscape(client.ContextName)),
+						Info:      readyStr,
+						Matches:   []MatchInfo{{Field: "Name", Value: rs.Name}},
+					}
+				}
+			}
+		}(client)
+	}
+	internalWg.Wait()
+}
+
+func searchDaemonSets(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var internalWg sync.WaitGroup
+	for _, client := range clients {
+		internalWg.Add(1)
+		go func(client KubeClient) {
+			defer internalWg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			dsList, err := client.Clientset.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{})
+			cancel()
+			if err != nil {
+				return
+			}
+			for _, ds := range dsList.Items {
+				if re.MatchString(ds.Name) {
+					readyStr := fmt.Sprintf("%d/%d Ready", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled)
+					results <- SearchResult{
+						Type:      "DaemonSet",
+						Name:      ds.Name,
+						Cluster:   client.ContextName,
+						Namespace: ds.Namespace,
+						URL:       fmt.Sprintf("/daemonset/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(ds.Name), url.QueryEscape(ds.Namespace), url.QueryEscape(client.ContextName)),
+						Info:      readyStr,
+						Status:    "Running",
+						Matches:   []MatchInfo{{Field: "Name", Value: ds.Name}},
+					}
+				}
+			}
+		}(client)
+	}
+	internalWg.Wait()
+}
+
+func searchStatefulSets(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var internalWg sync.WaitGroup
+	for _, client := range clients {
+		internalWg.Add(1)
+		go func(client KubeClient) {
+			defer internalWg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ssList, err := client.Clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
+			cancel()
+			if err != nil {
+				return
+			}
+			for _, ss := range ssList.Items {
+				if re.MatchString(ss.Name) {
+					var desiredReplicas int32 = 1
+					if ss.Spec.Replicas != nil {
+						desiredReplicas = *ss.Spec.Replicas
+					}
+					readyStr := fmt.Sprintf("%d/%d Ready", ss.Status.ReadyReplicas, desiredReplicas)
+					results <- SearchResult{
+						Type:      "StatefulSet",
+						Name:      ss.Name,
+						Cluster:   client.ContextName,
+						Namespace: ss.Namespace,
+						URL:       fmt.Sprintf("/statefulset/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(ss.Name), url.QueryEscape(ss.Namespace), url.QueryEscape(client.ContextName)),
+						Info:      readyStr,
+						Status:    "Running",
+						Matches:   []MatchInfo{{Field: "Name", Value: ss.Name}},
+					}
+				}
+			}
+		}(client)
+	}
+	internalWg.Wait()
+}
+
+func searchConfigMaps(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var internalWg sync.WaitGroup
+	for _, client := range clients {
+		internalWg.Add(1)
+		go func(client KubeClient) {
+			defer internalWg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			cmList, err := client.Clientset.CoreV1().ConfigMaps("").List(ctx, metav1.ListOptions{})
+			cancel()
+			if err != nil {
+				return
+			}
+			for _, cm := range cmList.Items {
+				if re.MatchString(cm.Name) {
+					infoStr := fmt.Sprintf("%d keys", len(cm.Data))
+					results <- SearchResult{
+						Type:      "ConfigMap",
+						Name:      cm.Name,
+						Cluster:   client.ContextName,
+						Namespace: cm.Namespace,
+						Matches:   []MatchInfo{{Field: "Name", Value: cm.Name}},
+						URL:       fmt.Sprintf("/configmap/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(cm.Name), url.QueryEscape(cm.Namespace), url.QueryEscape(client.ContextName)),
+						Info:      infoStr,
+					}
+				}
+			}
+		}(client)
+	}
+	internalWg.Wait()
+}
+
+func searchNodes(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var internalWg sync.WaitGroup
+	for _, client := range clients {
+		internalWg.Add(1)
+		go func(client KubeClient) {
+			defer internalWg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			nodeList, err := client.Clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+			cancel()
+			if err != nil {
+				return
+			}
+			for _, node := range nodeList.Items {
+				if re.MatchString(node.Name) {
+					status, _ := getNodeStatus(node)
+					results <- SearchResult{
+						Type:    "Node",
+						Name:    node.Name,
+						Cluster: client.ContextName,
+						URL:     fmt.Sprintf("/node/detail?name=%s&cluster_name=%s", url.QueryEscape(node.Name), url.QueryEscape(client.ContextName)),
+						Status:  status,
+						Info:    node.Status.NodeInfo.KubeletVersion,
+						Matches: []MatchInfo{{Field: "Name", Value: node.Name}},
+					}
+				}
+			}
+		}(client)
+	}
+	internalWg.Wait()
+}
+
+func searchPersistentVolumes(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var internalWg sync.WaitGroup
+	for _, client := range clients {
+		internalWg.Add(1)
+		go func(client KubeClient) {
+			defer internalWg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			pvList, err := client.Clientset.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
+			cancel()
+			if err != nil {
+				return
+			}
+			for _, pv := range pvList.Items {
+				if re.MatchString(pv.Name) {
+					storage := "N/A"
+					if cap, ok := pv.Spec.Capacity[v1.ResourceStorage]; ok {
+						storage = formatMemory(&cap)
+					}
+					results <- SearchResult{
+						Type:      "PersistentVolume",
+						Name:      pv.Name,
+						Cluster:   client.ContextName,
+						Namespace: pv.Spec.ClaimRef.Namespace,
+						Matches:   []MatchInfo{{Field: "Name", Value: pv.Name}},
+						URL:       "#",
+						Info:      storage,
+						Status:    string(pv.Status.Phase),
+					}
+				}
+			}
+		}(client)
+	}
+	internalWg.Wait()
+}
+
+// searchServices performs regex search on services
+func searchServices(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var internalWg sync.WaitGroup
+	for _, client := range clients {
+		internalWg.Add(1)
+		go func(client KubeClient) {
+			defer internalWg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			svcList, err := client.Clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{})
+			cancel()
+			if err != nil {
+				return
+			}
+			for _, svc := range svcList.Items {
+				if re.MatchString(svc.Name) {
+					results <- SearchResult{
+						Type:      "Service",
+						Name:      svc.Name,
+						Cluster:   client.ContextName,
+						Namespace: svc.Namespace,
+						Matches:   []MatchInfo{{Field: "Name", Value: svc.Name}},
+						URL:       fmt.Sprintf("/service/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(svc.Name), url.QueryEscape(svc.Namespace), url.QueryEscape(client.ContextName)),
+						Info:      svc.Spec.ClusterIP,
+						Status:    string(svc.Spec.Type),
+					}
+				}
+			}
+		}(client)
+	}
+	internalWg.Wait()
+}
+
+// searchPVCs performs regex search on PersistentVolumeClaims
+func searchPVCs(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var internalWg sync.WaitGroup
+	for _, client := range clients {
+		internalWg.Add(1)
+		go func(client KubeClient) {
+			defer internalWg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			pvcList, err := client.Clientset.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{})
+			cancel()
+			if err != nil {
+				return
+			}
+			for _, pvc := range pvcList.Items {
+				if re.MatchString(pvc.Name) {
+					storage := "N/A"
+					if cap, ok := pvc.Status.Capacity[v1.ResourceStorage]; ok {
+						storage = formatMemory(&cap)
+					}
+					results <- SearchResult{
+						Type:      "PVC",
+						Name:      pvc.Name,
+						Cluster:   client.ContextName,
+						Namespace: pvc.Namespace,
+						Matches:   []MatchInfo{{Field: "Name", Value: pvc.Name}},
+						URL:       fmt.Sprintf("/pvc/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(pvc.Name), url.QueryEscape(pvc.Namespace), url.QueryEscape(client.ContextName)),
+						Info:      storage,
+						Status:    string(pvc.Status.Phase),
+					}
+				}
+			}
+		}(client)
+	}
+	internalWg.Wait()
+}
+
+func searchServiceAccounts(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var internalWg sync.WaitGroup
+	for _, client := range clients {
+		internalWg.Add(1)
+		go func(client KubeClient) {
+			defer internalWg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			saList, err := client.Clientset.CoreV1().ServiceAccounts("").List(ctx, metav1.ListOptions{})
+			cancel()
+			if err != nil {
+				return
+			}
+			for _, sa := range saList.Items {
+				if re.MatchString(sa.Name) {
+					results <- SearchResult{
+						Type:      "ServiceAccount",
+						Name:      sa.Name,
+						Cluster:   client.ContextName,
+						Namespace: sa.Namespace,
+						Matches:   []MatchInfo{{Field: "Name", Value: sa.Name}},
+						URL:       fmt.Sprintf("/serviceaccount/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(sa.Name), url.QueryEscape(sa.Namespace), url.QueryEscape(client.ContextName)),
+						Status:    "Active",
+						Info:      fmt.Sprintf("%d Secrets", len(sa.Secrets)),
+					}
+				}
+			}
+		}(client)
+	}
+	internalWg.Wait()
+}
+
+func searchIngresses(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var internalWg sync.WaitGroup
+	for _, client := range clients {
+		internalWg.Add(1)
+		go func(client KubeClient) {
+			defer internalWg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			list, err := client.Clientset.NetworkingV1().Ingresses("").List(ctx, metav1.ListOptions{})
+			cancel()
+			if err != nil {
+				return
+			}
+			for _, item := range list.Items {
+				if re.MatchString(item.Name) {
+					var hosts []string
+					for _, rule := range item.Spec.Rules {
+						if rule.Host != "" {
+							hosts = append(hosts, rule.Host)
+						}
+					}
+					results <- SearchResult{
+						Type:      "Ingress",
+						Name:      item.Name,
+						Cluster:   client.ContextName,
+						Namespace: item.Namespace,
+						Matches:   []MatchInfo{{Field: "Name", Value: item.Name}},
+						URL:       fmt.Sprintf("/ingress/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(item.Name), url.QueryEscape(item.Namespace), url.QueryEscape(client.ContextName)),
+						Info:      fmt.Sprintf("%d Rules", len(item.Spec.Rules)),
+						Status:    "Active",
+					}
+				}
+			}
+		}(client)
+	}
+	internalWg.Wait()
+}
+
+func searchSecrets(re *regexp.Regexp, clients []KubeClient, results chan<- SearchResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var internalWg sync.WaitGroup
+	for _, client := range clients {
+		internalWg.Add(1)
+		go func(client KubeClient) {
+			defer internalWg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			list, err := client.Clientset.CoreV1().Secrets("").List(ctx, metav1.ListOptions{})
+			cancel()
+			if err != nil {
+				return
+			}
+			for _, item := range list.Items {
+				if re.MatchString(item.Name) {
+					results <- SearchResult{
+						Type:      "Secret",
+						Name:      item.Name,
+						Cluster:   client.ContextName,
+						Namespace: item.Namespace,
+						Matches:   []MatchInfo{{Field: "Name", Value: item.Name}},
+						URL:       fmt.Sprintf("/secret/detail?name=%s&namespace=%s&cluster_name=%s", url.QueryEscape(item.Name), url.QueryEscape(item.Namespace), url.QueryEscape(client.ContextName)),
+						Info:      string(item.Type),
+						Status:    "Secure",
+					}
+				}
+			}
+		}(client)
+	}
+	internalWg.Wait()
+}
+
+// parseContainer extracts full technical info from a v1.Container
+func parseContainer(c v1.Container) ContainerInfo {
+	info := ContainerInfo{
+		Name:    c.Name,
+		Image:   c.Image,
+		State:   "Unknown",
+		Command: c.Command,
+		Env:     make(map[string]string),
+		Mounts:  make(map[string]string),
+	}
+
+	for _, p := range c.Ports {
+		info.Ports = append(info.Ports, fmt.Sprintf("%s:%d/%s", p.Name, p.ContainerPort, p.Protocol))
+	}
+
+	for _, e := range c.Env {
+		if e.Value != "" {
+			info.Env[e.Name] = e.Value
+		} else if e.ValueFrom != nil {
+			if e.ValueFrom.SecretKeyRef != nil {
+				info.Env[e.Name] = "from(secret)"
+			} else if e.ValueFrom.ConfigMapKeyRef != nil {
+				info.Env[e.Name] = "from(configmap)"
+			} else if e.ValueFrom.FieldRef != nil {
+				info.Env[e.Name] = fmt.Sprintf("from(field:%s)", e.ValueFrom.FieldRef.FieldPath)
+			} else {
+				info.Env[e.Name] = "from(reference)"
+			}
+		}
+	}
+
+	for _, m := range c.VolumeMounts {
+		info.Mounts[m.MountPath] = m.Name
+	}
+
+	req := c.Resources.Requests
+	lim := c.Resources.Limits
+	if len(req) > 0 || len(lim) > 0 {
+		info.Resources = fmt.Sprintf("CPU: %s/%s | Mem: %s/%s",
+			req.Cpu().String(), lim.Cpu().String(),
+			req.Memory().String(), lim.Memory().String())
+	}
+
+	return info
+}
+
+// GetBaseData constructs the common PageBase struct using Context for Auth info.
+// It replaces the manual initialization in handlers.
+func GetBaseData(c echo.Context, title, activePage string) PageBase {
+	// 1. Get Auth Info from Context (Populated by OptionalAuthMiddleware)
+	username, _ := c.Get("username").(string)
+	isAdmin, _ := c.Get("isAdmin").(bool)
+
+	// 2. Get Filter Info
+	selectedCount, queryString, cacheBuster := getRequestFilter(c)
+
+	// 3. Construct Base
+	return PageBase{
+		Title:                title,
+		ActivePage:           activePage,
+		SelectedClusterCount: selectedCount,
+		QueryString:          queryString,
+		CacheBuster:          cacheBuster,
+		LastRefreshed:        time.Now().Format(time.RFC1123),
+		IsAdmin:              isAdmin,  // Dynamic from DB/Session
+		UserName:             username, // Dynamic from DB/Session
+	}
+}

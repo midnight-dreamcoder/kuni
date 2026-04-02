@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - K8s Universal Inspector</title>
+    <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
+</head>
+<body>
+
+    {{ template "sidebar" . }}
+
+    <main class="main-content">
+        <h1>{{ .ReplicaSetName }}</h1>
+        <div class="page-subtitle">
+            ReplicaSet in <strong>{{ .ClusterName }}</strong> / <strong>{{ .NamespaceName }}</strong>
+        </div>
+
+        {{ if .ErrorLogs }}
+        <div class="errors">
+            <h2>Errors</h2>
+            <ul>{{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}</ul>
+        </div>
+        {{ end }}
+        
+        <div class="detail-grid">
+            
+            <div class="detail-main">
+                <div class="container">
+                    <h2>Pods</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Ready</th>
+                                <th>Status</th>
+                                <th>Restarts</th>
+                                <th>Node</th>
+                                <th>IP</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pods-tbody">
+                            {{ range .Pods }}
+                            <tr>
+                                <td class="col-pod">
+                                    <a href="{{ MakeURL $.QueryString "/pod/detail" "name" .Name "namespace" .Namespace "cluster_name" .Cluster }}" class="deployment-link">
+                                        {{ .Name }}
+                                    </a>
+                                </td>
+                                <td>{{ .Ready }}</td>
+                                <td><span class="status status-{{ .Status | ToLower }}">{{ .Status }}</span></td>
+                                <td>{{ .Restarts }}</td>
+                                <td>
+                                    <a href="{{ MakeURL $.QueryString "/node/detail" "name" .Node "cluster_name" .Cluster }}" class="deployment-link">
+                                        {{ .Node }}
+                                    </a>
+                                </td>
+                                <td>{{ .PodIP }}</td>
+                            </tr>
+                            {{ else }}
+                            <tr><td colspan="6" class="no-data">No pods found.</td></tr>
+                            {{ end }}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="container">
+                    <h2>Events</h2>
+                    <table id="eventsTable">
+                        <thead>
+                            <tr>
+                                <th class="sortable-header sort-asc" data-sort-type="duration">Last Seen</th>
+                                <th class="sortable-header" data-sort-type="string">Type</th>
+                                <th class="sortable-header" data-sort-type="string">Reason</th>
+                                <th class="sortable-header" data-sort-type="number">Count</th>
+                                <th>Message</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{ range .Events }}
+                            <tr class="{{ if eq .Type "Warning" }}event-warning{{ else }}event-normal{{ end }}">
+                                <td>{{ .LastSeen }}</td>
+                                <td>{{ .Type }}</td>
+                                <td>{{ .Reason }}</td>
+                                <td>{{ .Count }}</td>
+                                <td style="white-space: normal;">{{ .Message }}</td>
+                            </tr>
+                            {{ else }}
+                            <tr><td colspan="5" class="no-data">No events found.</td></tr>
+                            {{ end }}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="detail-sidebar">
+                <div class="overview-box">
+                    <h2>Overview</h2>
+                    <ul class="overview-list">
+                        <li><strong>Status</strong> <span id="rs-status">{{ .Status }} (Ready/Total)</span></li>
+                        <li><strong>Age</strong> <span id="rs-age">{{ .Age }}</span></li>
+                        <li><strong>Owned By</strong> 
+                            <span>
+                                {{ if .OwnerName }}
+                                    <a href="{{ MakeOwnerURL $.QueryString .OwnerName .OwnerKind .NamespaceName .ClusterName }}" class="deployment-link">
+                                        {{ .OwnerName }}
+                                    </a>
+                                {{ else }}
+                                    <span style="color:#6b7280">None</span>
+                                {{ end }}
+                            </span>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="overview-box">
+                    <h2>Selector</h2>
+                    <div style="padding: 1rem 1.5rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.85rem; color: #e5e7eb; word-break: break-all;">
+                        {{ .Selector }}
+                    </div>
+                </div>
+
+                <div class="overview-box">
+                    <h2>Images</h2>
+                    <div id="rs-images" style="padding: 1rem 1.5rem;">
+                        {{ range .Images }}
+                            <div style="margin-bottom: 0.5rem;"><span class="image-tag">{{ . }}</span></div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+    <script src="/static/js/table_utils.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const table = document.getElementById('eventsTable');
+            if (table) {
+                const tbody = table.querySelector('tbody');
+                sortRows(tbody, 0, 'duration', true);
+            }
+        });
+
+        function updateDashboard() {
+            const queryString = window.location.search;
+            fetch('/api/replicaset/detail' + queryString)
+                .then(response => response.json())
+                .then(data => {
+                    // Update Status
+                    document.getElementById('rs-status').innerText = data.Status + " (Ready/Total)";
+                    document.getElementById('rs-age').innerText = data.Age;
+
+                    // Update Images
+                    const imagesDiv = document.getElementById('rs-images');
+                    if (imagesDiv && data.Images) {
+                        imagesDiv.innerHTML = data.Images.map(img => 
+                            `<div style="margin-bottom: 0.5rem;"><span class="image-tag">${img}</span></div>`
+                        ).join('');
+                    }
+
+                    // Update Pods
+                    const podsBody = document.getElementById('pods-tbody');
+                    if (podsBody) {
+                        if (!data.Pods || data.Pods.length === 0) {
+                            podsBody.innerHTML = '<tr><td colspan="6" class="no-data">No pods found.</td></tr>';
+                        } else {
+                            let html = '';
+                            data.Pods.forEach(p => {
+                                const statusClass = 'status-' + p.Status.toLowerCase();
+                                const link = `/pod/detail?name=${encodeURIComponent(p.Name)}&namespace=${encodeURIComponent(p.Namespace)}&cluster_name=${encodeURIComponent(p.Cluster)}`;
+                                const nodeLink = `/node/detail?name=${encodeURIComponent(p.Node)}&cluster_name=${encodeURIComponent(p.Cluster)}`;
+                                html += `<tr>
+                                    <td class="col-pod"><a href="${link}" class="deployment-link">${p.Name}</a></td>
+                                    <td>${p.Ready}</td>
+                                    <td><span class="status ${statusClass}">${p.Status}</span></td>
+                                    <td>${p.Restarts}</td>
+                                    <td><a href="${nodeLink}" class="deployment-link">${p.Node}</a></td>
+                                    <td>${p.PodIP}</td>
+                                </tr>`;
+                            });
+                            podsBody.innerHTML = html;
+                        }
+                    }
+
+                    // Update Events
+                    const eventsBody = document.querySelector('#eventsTable tbody');
+                    if (eventsBody) {
+                        if (!data.Events || data.Events.length === 0) {
+                            eventsBody.innerHTML = '<tr><td colspan="5" class="no-data">No events found.</td></tr>';
+                        } else {
+                            let html = '';
+                            data.Events.forEach(e => {
+                                const rowClass = e.Type === 'Warning' ? 'event-warning' : 'event-normal';
+                                html += `<tr class="${rowClass}">
+                                    <td>${e.LastSeen}</td>
+                                    <td>${e.Type}</td>
+                                    <td>${e.Reason}</td>
+                                    <td>${e.Count}</td>
+                                    <td style="white-space: normal;">${e.Message}</td>
+                                </tr>`;
+                            });
+                            eventsBody.innerHTML = html;
+                        }
+                    }
+                })
+                .catch(err => console.error('Error fetching updates:', err));
+        }
+        setInterval(updateDashboard, 5000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - K8s Universal Inspector</title>
+    <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.0.2/dist/chartjs-chart-treemap.min.js"></script>
+</head>
+<body>
+
+    {{ template "sidebar" . }}
+
+    <main class="main-content">
+
+        <h1>
+            {{ .Title }}
+            <span class="title-count">({{ .TotalUniqueDeployments }})</span>
+        </h1>
+
+        <div class="stats-container">
+            
+            <div class="stat-widget full-width">
+                <h3>Deployment Distribution by Namespace (Top 30) - Status Heatmap</h3>
+                <div class="treemap-container">
+                    <canvas id="treemapChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="stat-widget">
+                <h3>Deployments by Cluster</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        {{ $colors := ColorSlice }}
+                        {{ $totalClusters := 0 }}
+                        {{ range .ClusterStats }}{{ $totalClusters = add $totalClusters .Count }}{{ end }}
+                        
+                        {{ range $i, $stat := .ClusterStats }}
+                            {{ $color := index $colors (mod $i 10) }}
+                            <div class="bar-segment" 
+                                 style="width: {{ printf "%.2f" (fdiv .Count $totalClusters | mulf 100.0) }}%; background-color: {{ $color }}; box-shadow: 0 0 10px 0px {{ $color }};"
+                                 title="{{ .Name }}: {{ .Count }}"></div>
+                        {{ end }}
+                    </div>
+                    <div class="chart-legend">
+                        {{ range $i, $stat := .ClusterStats }}
+                        <div class="legend-item">
+                            <span class="legend-color" style="background-color: {{ index $colors (mod $i 10) }};"></span>
+                            {{ .Name }} ({{ .Count }})
+                        </div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+            </div>
+
+        {{ if .ErrorLogs }}
+        <div class="errors">
+            <h2>Connection Errors</h2>
+            <ul>
+                {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
+            </ul>
+        </div>
+        {{ end }}
+
+        <div class="search-container">
+            <input type="text" id="searchInput" onkeyup="filterTable('searchInput', 'mainTable')" placeholder="Search by deployment, cluster, or namespace...">
+        </div>
+
+        <div class="container" style="margin-top: 1.5rem;">
+            <table id="mainTable">
+                <thead id="tableHeader">
+                    <tr>
+                        <th class="sortable-header sort-asc" data-sort-type="string" style="width: 50px; text-align: center;"></th>
+                        <th class="sortable-header" data-sort-type="string">Deployment</th>
+                        <th class="sortable-header" data-sort-type="number" data-sort-key="ready">Ready</th>
+                        <th class="sortable-header col-tags" data-sort-type="string">Images</th>
+                        <th class="sortable-header" data-sort-type="string">Strategy</th>
+                        <th class="sortable-header col-tags" data-sort-type="string">Clusters</th>
+                        <th class="sortable-header col-tags" data-sort-type="string">Namespaces</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    {{ range .Deployments }}
+                    <tr>
+                        <td style="text-align: center;">
+                            <span style="display:none;">{{ if eq .TotalReadyReplicas .TotalDesiredReplicas }}Ready{{ else }}Not Ready{{ end }}</span>
+                            <div title="{{ if eq .TotalReadyReplicas .TotalDesiredReplicas }}Ready{{ else }}Not Ready{{ end }}">
+                                {{ if eq .TotalReadyReplicas .TotalDesiredReplicas }}
+                                    <svg class="status-icon status-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                {{ else }}
+                                    <svg class="status-icon status-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01" /></svg>
+                                {{ end }}
+                            </div>
+                        </td>
+                        <td>
+                            <a href="{{ MakeURL $.QueryString "/deployment/detail" "name" .Name }}" class="deployment-link">
+                                {{ .Name }}
+                            </a>
+                        </td>
+                        <td class="ready-status">{{ .TotalReadyReplicas }}/{{ .TotalDesiredReplicas }}</td>
+                        <td class="col-tags">
+                            {{ range .Images }} <span class="image-tag">{{ . }}</span> {{ end }}
+                        </td>
+                        <td>
+                            {{ range .Strategies }} <span class="strategy-tag">{{ . }}</span> {{ end }}
+                        </td>
+                        <td class="col-tags">
+                            {{ range .Clusters }} 
+                                <a href="{{ MakeURL $.QueryString "/cluster/detail" "cluster_name" . }}" class="tag-link">
+                                    <span class="cluster-tag">{{ . }}</span> 
+                                </a>
+                            {{ end }}
+                        </td>
+                        <td class="col-tags">
+                            {{ range .Namespaces }}
+                                <a href="{{ MakeURL $.QueryString "/namespace/detail" "name" . }}" class="tag-link">
+                                    <span class="namespace-tag">{{ . }}</span>
+                                </a>
+                            {{ end }}
+                        </td>
+                    </tr>
+                    {{ else }}
+                    <tr>
+                        <td colspan="7" class="no-data">No deployments found.</td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+            <div class="footer">
+                Last refreshed: {{ .LastRefreshed }}
+            </div>
+        </div>
+
+    </main>
+
+    <script src="/static/js/table_utils.js"></script>
+
+    <script>
+        // --- Page-Specific Logic (Charts) ---
+        document.addEventListener('DOMContentLoaded', function() {
+            // Default sort by Status (Ascending -> "Not Ready" before "Ready")
+            const table = document.getElementById('mainTable');
+            if (table) {
+                sortRows(table.querySelector('tbody'), 0, 'string', true);
+            }
+
+            // --- TREEMAP LOGIC ---
+            const ctx = document.getElementById('treemapChart');
+            if (ctx) {
+                const chartFontColor = '#e5e7eb';
+                const chartFontFamily = "'IBM Plex Mono', monospace";
+
+                // Data from Go
+                const rawData = [
+                    {{ range $i, $ns := .NamespaceStats }}
+                    {
+                        name: "{{ $ns.Name }}",
+                        value: {{ $ns.Count }},
+                        color: "{{ $ns.Color }}",
+                        detail: "{{ $ns.ErrorDetail }}"
+                    },
+                    {{ end }}
+                ];
+
+                new Chart(ctx, {
+                    type: 'treemap',
+                    data: {
+                        datasets: [{
+                            label: 'Deployments by Namespace',
+                            tree: rawData,
+                            key: 'value',
+                            groups: ['name'],
+                            borderWidth: 1,
+                            borderColor: '#1F2937',
+                            spacing: 1,
+                            backgroundColor: (ctx) => {
+                                if (ctx.type !== 'data') return 'transparent';
+                                const item = ctx.raw;
+                                if (!item || !item._data) return '#374151';
+                                // Use the color from the raw data
+                                if (item._data.color) {
+                                    return item._data.color;
+                                }
+                                // Fallback for grouped items
+                                if (item._data.children && item._data.children.length > 0) {
+                                    return item._data.children[0].color;
+                                }
+                                return '#374151';
+                            },
+                            labels: {
+                                display: true,
+                                align: 'center',
+                                position: 'center',
+                                color: 'white',
+                                font: { family: chartFontFamily, size: 14, weight: 'bold' },
+                                formatter: (ctx) => {
+                                    return ctx.raw._data.name + '\n' + ctx.raw.v;
+                                }
+                            }
+                        }]
+                    },
+                    options: {
+                        maintainAspectRatio: false,
+                        aspectRatio: 10,
+                        onClick: (e, activeElements) => {
+                            if (activeElements.length === 0) return;
+                            const raw = activeElements[0].element.$context.raw;
+                            let nsName = null;
+                            if (raw._data && raw._data.name) {
+                                nsName = raw._data.name;
+                            } else if (raw._data && raw._data.children && raw._data.children.length > 0) {
+                                nsName = raw._data.children[0].name;
+                            }
+                            if (nsName) {
+                                const currentSearch = window.location.search;
+                                const params = new URLSearchParams(currentSearch);
+                                params.set('name', nsName); 
+                                window.location.href = '/namespace/detail?' + params.toString();
+                            }
+                        },
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    title: (items) => items[0].raw._data.name,
+                                    label: (itemContext) => {
+                                        const item = itemContext.raw;
+                                        let text = 'Deployments: ' + item.v;
+                                        let detail = '';
+                                        if (item._data.children && item._data.children.length > 0) {
+                                             detail = item._data.children[0].detail;
+                                        } else if (item._data.detail) {
+                                             detail = item._data.detail;
+                                        }
+                                        if (detail) {
+                                            text += ' (' + detail + ')';
+                                        }
+                                        return text;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        });
+    </script>
+    <style>
+        .status-icon { width: 20px; height: 20px; vertical-align: middle; }
+        .status-success { color: #10b981; }
+        .status-warning { color: #f59e0b; }
+        .status-error { color: #ef4444; }
+        .status-info { color: #22d3ee; }
+        .status-muted { color: #9ca3af; }
+        .legend-color { border-radius: 50%; }
+        .cluster-tag, .namespace-tag, .image-tag, .strategy-tag { border-radius: 12px; }
+        .status-icon { border-radius: 50%; }
+    </style>
+</body>
+</html>

@@ -1,0 +1,18 @@
+services:
+  inspector:
+    build: .
+    container_name: k8s-inspector
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount your local kubeconfig directory into the container
+      - ./kubeconfig:/root/kubeconfig
+      
+      # OPTIONAL: If using GCP locally, mount your credentials
+      # - ~/.config/gcloud/application_default_credentials.json:/root/.config/gcloud/application_default_credentials.json
+    environment:
+      # Tell the app where to look for configs (if you changed the default)
+      - KUBECONFIG_DIR=/root/kubeconfig
+      
+      # If using GCP credentials mounted above:
+      # - GOOGLE_APPLICATION_CREDENTIALS=/root/.config/gcloud/application_default_credentials.json

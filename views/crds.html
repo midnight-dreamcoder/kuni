@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - K8s Universal Inspector</title>
+    <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
+</head>
+<body>
+
+    {{ template "sidebar" . }}
+
+    <main class="main-content">
+        <h1>{{ .Title }} <span class="title-count">({{ .TotalCRDs }})</span></h1>
+
+        <div class="stats-container">
+            <div class="stat-widget">
+                <h3>By API Group (Top 10)</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        {{ $colors := ColorSlice }}
+                        {{ $totalGroups := 0 }}{{ range .GroupStats }}{{ $totalGroups = add $totalGroups .Count }}{{ end }}
+                        {{ range $i, $stat := .GroupStats }}
+                            {{ $color := index $colors (mod $i 10) }}
+                            <div class="bar-segment" style="width: {{ printf "%.2f" (fdiv .Count $totalGroups | mulf 100.0) }}%; background-color: {{ $color }}; box-shadow: 0 0 10px 0px {{ $color }};" title="{{ .Name }}: {{ .Count }}"></div>
+                        {{ end }}
+                    </div>
+                    <div class="chart-legend">
+                        {{ range $i, $stat := .GroupStats }}
+                        <div class="legend-item"><span class="legend-color" style="background-color: {{ index $colors (mod $i 10) }};"></span>{{ .Name }} ({{ .Count }})</div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stat-widget"> 
+                <h3>By Scope</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        {{ $colors := ColorSlice }}
+                        {{ $totalScope := 0 }}{{ range .ScopeStats }}{{ $totalScope = add $totalScope .Count }}{{ end }}
+                        {{ range $i, $stat := .ScopeStats }}
+                            {{ $color := index $colors (mod $i 10) }}
+                            <div class="bar-segment" style="width: {{ printf "%.2f" (fdiv .Count $totalScope | mulf 100.0) }}%; background-color: {{ $color }}; box-shadow: 0 0 10px 0px {{ $color }};" title="{{ .Name }}: {{ .Count }}"></div>
+                        {{ end }}
+                    </div>
+                    <div class="chart-legend">
+                        {{ range $i, $stat := .ScopeStats }}
+                        <div class="legend-item"><span class="legend-color" style="background-color: {{ index $colors (mod $i 10) }};"></span>{{ .Name }} ({{ .Count }})</div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {{ if .ErrorLogs }}
+        <div class="errors">
+            <h2>Connection Errors</h2>
+            <ul>{{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}</ul>
+        </div>
+        {{ end }}
+
+        <div class="search-container">
+            <input type="text" id="searchInput" onkeyup="filterTable('searchInput', 'mainTable')" placeholder="Search by name, group, kind...">
+        </div>
+
+        <div class="container" style="margin-top: 1.5rem;">
+            <table id="mainTable">
+                <thead id="tableHeader">
+                    <tr>
+                        <th class="sortable-header col-cm" data-sort-type="string">CRD Name</th>
+                        <th class="sortable-header" data-sort-type="string">Kind</th>
+                        <th class="sortable-header col-tags" data-sort-type="string">Group</th>
+                        <th class="sortable-header" data-sort-type="string">Version</th>
+                        <th class="sortable-header" data-sort-type="string">Scope</th>
+                        <th class="sortable-header" data-sort-type="duration">Age</th>
+                        <th class="sortable-header col-cluster" data-sort-type="string">Clusters Present</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    {{ range .CRDs }}
+                    <tr>
+                        <td class="col-cm">
+                            <span class="deployment-link" style="cursor: default; color: #e5e7eb;">{{ .Name }}</span>
+                        </td>
+                        <td><span class="strategy-tag">{{ .Kind }}</span></td>
+                        <td class="col-tags">{{ .Group }}</td>
+                        <td>{{ .Version }}</td>
+                        <td>{{ .Scope }}</td>
+                        <td>{{ .Age }}</td>
+                        <td class="col-cluster">
+                            {{ range .Clusters }}
+                            <span class="cluster-tag">{{ . }}</span>
+                            {{ end }}
+                        </td>
+                    </tr>
+                    {{ else }}
+                    <tr><td colspan="7" class="no-data">No Custom Resources found.</td></tr>
+                    {{ end }}
+                </tbody>
+            </table>
+            <div class="footer">Last refreshed: {{ .LastRefreshed }}</div>
+        </div>
+    </main>
+
+    <script src="/static/js/table_utils.js"></script>
+</body>
+</html>

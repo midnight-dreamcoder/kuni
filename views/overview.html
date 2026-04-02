@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - K8s Universal Inspector</title>
+    <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
+</head>
+<body>
+
+    {{ template "sidebar" . }}
+
+    <main class="main-content">
+        
+        <h1>
+            {{ .Title }}
+            <span class="title-count">({{ .TotalClusters }} Clusters)</span>
+        </h1>
+
+        {{ if .ErrorLogs }}
+        <div class="errors" style="max-width: 1600px;">
+            <h2>Errors During Fetch</h2>
+            <ul>
+                {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
+            </ul>
+        </div>
+        {{ end }}
+
+        <div class="stats-container">
+            
+            <div class="stat-widget">
+                <h3>Node Status ({{ .NodeStatus.Total }} Total)</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        <div class="bar-segment status-ready" 
+                             style="width: {{ printf "%.2f" (fdiv .NodeStatus.Ready .NodeStatus.Total | mulf 100.0) }}%;"
+                             title="Ready: {{ .NodeStatus.Ready }}"></div>
+                        <div class="bar-segment status-notready" 
+                             style="width: {{ printf "%.2f" (fdiv .NodeStatus.NotReady .NodeStatus.Total | mulf 100.0) }}%;"
+                             title="Not Ready: {{ .NodeStatus.NotReady }}"></div>
+                    </div>
+                    <div class="chart-legend">
+                        <div class="legend-item">
+                            <span class="legend-color status-ready" style="background-color: #10b981;"></span>
+                            Ready ({{ .NodeStatus.Ready }})
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color status-notready" style="background-color: #ef4444;"></span>
+                            Not Ready ({{ .NodeStatus.NotReady }})
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stat-widget">
+                <h3>Persistent Volume Status ({{ .TotalPVs }} Total)</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        {{ range .PVStatus }}
+                            <div class="bar-segment status-{{ .Status | ToLower }}" 
+                                 style="width: {{ printf "%.2f" (fdiv .Count $.TotalPVs | mulf 100.0) }}%;"
+                                 title="{{ .Status }}: {{ .Count }}"></div>
+                        {{ end }}
+                    </div>
+                    <div class="chart-legend">
+                        {{ range .PVStatus }}
+                        <div class="legend-item">
+                            <span class="legend-color status-{{ .Status | ToLower }}"></span>
+                            {{ .Status }} ({{ .Count }})
+                        </div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+
+        </div> 
+
+        <div class="container" style="margin-top: 1.5rem;">
+            <h2>Real-Time Cluster Utilization</h2>
+            
+            <div class="responsive-grid">
+                {{ range .ClusterNames }}
+                    {{ $clusterName := . }}
+                    {{ $res := index $.ClusterResources $clusterName }}
+                    
+                    <div class="stat-widget">
+                        <h3>
+                            <a href="{{ MakeURL $.QueryString "/cluster/detail" "cluster_name" $clusterName }}" class="deployment-link">
+                                {{ $clusterName }}
+                            </a>
+                        </h3>
+                        <div class="chart-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; border-top: 1px solid #374151;">
+                            
+                            <div>
+                                <h4 style="color: #9ca3af; font-weight: 500; font-family: 'IBM Plex Mono', monospace;">CPU (Total: {{ $res.CapacityCpu }})</h4>
+                                
+                                <div class="stacked-bar-container">
+                                    <div class="bar-segment allocatable" 
+                                         style="width: {{ printf "%.2f" $res.AllocatableCpuPercent }}%;"
+                                         title="Allocatable: {{ $res.AllocatableCpu }}"></div>
+                                </div>
+                                <div class="chart-legend" style="justify-content: left; margin-bottom: 1rem;">
+                                    <div class="legend-item">
+                                        <span class="legend-color" style="background-color: #22d3ee;"></span>
+                                        Allocatable <span class="legend-percent">{{ printf "%.1f" $res.AllocatableCpuPercent }}%</span>
+                                    </div>
+                                </div>
+
+                                <div class="stacked-bar-container">
+                                    <div class="bar-segment usage" 
+                                         style="width: {{ printf "%.2f" $res.UsageCpuPercent }}%;"
+                                         title="Usage: {{ $res.UsageCpu }}"></div>
+                                </div>
+                                <div class="chart-legend" style="justify-content: left;">
+                                    <div class="legend-item">
+                                        <span class="legend-color" style="background-color: #f59e0b;"></span>
+                                        Usage <span class="legend-percent">{{ printf "%.1f" $res.UsageCpuPercent }}%</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <h4 style="color: #9ca3af; font-weight: 500; font-family: 'IBM Plex Mono', monospace;">Memory (Total: {{ $res.CapacityMem }})</h4>
+                                
+                                <div class="stacked-bar-container">
+                                    <div class="bar-segment allocatable" 
+                                         style="width: {{ printf "%.2f" $res.AllocatableMemPercent }}%;"
+                                         title="Allocatable: {{ $res.AllocatableMem }}"></div>
+                                </div>
+                                <div class="chart-legend" style="justify-content: left; margin-bottom: 1rem;">
+                                    <div class="legend-item">
+                                        <span class="legend-color" style="background-color: #22d3ee;"></span>
+                                        Allocatable <span class="legend-percent">{{ printf "%.1f" $res.AllocatableMemPercent }}%</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="stacked-bar-container">
+                                    <div class="bar-segment usage" 
+                                         style="width: {{ printf "%.2f" $res.UsageMemPercent }}%;"
+                                         title="Usage: {{ $res.UsageMem }}"></div>
+                                </div>
+                                <div class="chart-legend" style="justify-content: left;">
+                                    <div class="legend-item">
+                                        <span class="legend-color" style="background-color: #f59e0b;"></span>
+                                        Usage <span class="legend-percent">{{ printf "%.1f" $res.UsageMemPercent }}%</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                {{ else }}
+                    <div class="no-data" style="padding: 1rem 0;">No clusters found.</div>
+                {{ end }}
+            </div>
+
+        </div>
+
+    </main>
+
+</body>
+</html>

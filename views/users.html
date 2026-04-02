@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>User Management - {{ .Title }}</title>
+    <link rel="stylesheet" href="/style.css">
+    <script src="/static/js/table_utils.js"></script>
+</head>
+<body>
+    {{ template "sidebar" . }}
+    <div class="main-content">
+        <h1>User Management</h1>
+        <p class="page-subtitle">Manage access to K8s Inspector</p>
+
+        <div class="container" style="padding: 1.5rem; max-width: 800px; margin-bottom: 2rem;">
+            <h2>Add New User</h2>
+            <form action="/users/add" method="POST" style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 1rem; align-items: end;">
+                <div>
+                    <label class="form-label" style="display:block; margin-bottom:0.5rem; color:#9ca3af;">Username</label>
+                    <input type="text" name="username" class="input-dark" required placeholder="e.g. johndoe" style="width:100%;">
+                </div>
+                <div>
+                    <label class="form-label" style="display:block; margin-bottom:0.5rem; color:#9ca3af;">Password</label>
+                    <input type="password" name="password" class="input-dark" required placeholder="******" style="width:100%;">
+                </div>
+                <div>
+                    <label class="form-label" style="display:block; margin-bottom:0.5rem; color:#9ca3af;">Role</label>
+                    <select name="role" class="input-dark" style="width:100%; height: 42px;">
+                        <option value="viewer">Viewer (Read-Only)</option>
+                        <option value="admin">Admin (Full Access)</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary" style="height: 42px;">+ Add User</button>
+            </form>
+        </div>
+
+        <div class="container" style="max-width: 800px;">
+            <h2>Registered Users</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Username</th>
+                        <th>Role</th>
+                        <th>Created</th>
+                        <th style="text-align: right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ range .Users }}
+                    <tr>
+                        <td>#{{ .ID }}</td>
+                        <td style="font-weight: 600; color: var(--primary);">{{ .Username }}</td>
+                        <td>
+                            {{ if eq .Role "admin" }}
+                                <span class="status status-ready">Admin</span>
+                            {{ else }}
+                                <span class="status status-unknown">Viewer</span>
+                            {{ end }}
+                        </td>
+                        <td>{{ .CreatedAt.Format "2006-01-02" }}</td>
+                        <td style="text-align: right;">
+                            {{ if ne .Username "admin" }}
+                            <form action="/users/delete" method="POST" style="display:inline;" onsubmit="return confirm('Delete user {{ .Username }}?');">
+                                <input type="hidden" name="id" value="{{ .ID }}">
+                                <button type="submit" class="btn status-failed" style="border:none; cursor:pointer;">Delete</button>
+                            </form>
+                            {{ else }}
+                            <span class="text-muted" style="font-size:0.8rem; opacity:0.5;">(Protected)</span>
+                            {{ end }}
+                        </td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+        </div>
+        
+        {{ if .Error }}
+            <div class="errors" style="max-width: 800px;">
+                <h2>Error</h2>
+                <ul><li>{{ .Error }}</li></ul>
+            </div>
+        {{ end }}
+    </div>
+</body>
+</html>

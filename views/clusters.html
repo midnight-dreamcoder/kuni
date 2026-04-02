@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - K8s Universal Inspector</title>
+    <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
+</head>
+<body>
+
+    {{ template "sidebar" . }}
+
+    <main class="main-content">
+        <h1>{{ .Title }}</h1>
+
+        <div class="action-toolbar" style="grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));">
+            <div class="tool-card">
+                <span class="tool-label">Import:</span>
+                <form action="/cluster/upload" method="POST" enctype="multipart/form-data" class="upload-form" style="padding:0; flex-grow:1;">
+                    <input type="file" name="kubeconfig" required>
+                    <button type="submit" class="submit-button">Upload</button>
+                </form>
+            </div>
+            <div class="tool-card">
+                <span class="tool-label">AWS:</span>
+                <form action="/cluster/discover-eks" method="GET" class="upload-form" style="padding:0; flex-grow:1;">
+                    <input type="text" name="region" class="input-dark" placeholder="Region (e.g. us-east-1)" style="width: 140px;">
+                    <button type="submit" class="btn btn-primary">Scan</button>
+                </form>
+            </div>
+            <div class="tool-card">
+                <span class="tool-label">GCP:</span>
+                <form action="/cluster/discover-gke" method="GET" class="upload-form" style="padding:0; flex-grow:1;">
+                    <input type="text" name="project" class="input-dark" placeholder="Project ID" required style="width: 140px;">
+                    <button type="submit" class="btn btn-accent">Scan</button>
+                </form>
+            </div>
+        </div>
+
+        {{ if .ErrorLogs }}
+        <div class="errors">
+            <h2>Errors</h2>
+            <ul>{{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}</ul>
+        </div>
+        {{ end }}
+
+        <div class="search-container">
+            <input type="text" id="searchInput" onkeyup="filterTable('searchInput', 'mainTable')" placeholder="Search clusters...">
+        </div>
+
+        <div class="container">
+            <form method="GET" action="/clusters">
+                <div class="submit-bar">
+                    <button type="submit" formaction="/overview" class="btn btn-primary">Check Cluster Overview</button>
+                    <button type="submit" formaction="/workload" class="btn btn-accent" style="margin-left: 0.5rem; background-color: var(--warning);">Check Workload Overview</button>
+                </div>
+                
+                <table id="mainTable">
+                    <thead>
+                        <tr>
+                            <th class="checkbox-col"><input type="checkbox" id="selectAll"></th>
+                            <th class="sortable-header" data-sort-type="string">Cluster Name</th>
+                            <th class="sortable-header" data-sort-type="string">Status</th>
+                            <th class="sortable-header" data-sort-type="string">Provider</th>
+                            <th class="sortable-header" data-sort-type="string">Version</th>
+                            <th class="sortable-header" data-sort-type="number">Nodes</th>
+                            <th class="sortable-header" data-sort-type="number" data-sort-key="latency">Latency</th>
+                            <th>API Server</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Clusters }}
+                        <tr class="cluster-row {{ if index $.SelectedClusters .Name }}row-selected{{ end }}" data-cluster-name="{{ .Name }}">
+                            <td class="checkbox-col">
+                                <input type="checkbox" name="c" value="{{ .Name }}" {{ if index $.SelectedClusters .Name }}checked{{ end }}>
+                            </td>
+                            <td>
+                                <a href="{{ MakeURL $.QueryString "/cluster/detail" "cluster_name" .Name }}" class="deployment-link">
+                                    {{ .Name }}
+                                </a>
+                            </td>
+                            <td class="cell-status">
+                                <span class="status status-pending">Pending...</span>
+                            </td>
+                            <td class="cell-provider"><span style="color:#6b7280">...</span></td>
+                            <td class="cell-version"><span style="color:#6b7280">-</span></td>
+                            <td class="cell-nodes"><span style="color:#6b7280">-</span></td>
+                            <td class="cell-latency"><span style="color:#6b7280">-</span></td>
+                            <td class="cell-apiserver api-server"><span style="color:#6b7280">...</span></td>
+                        </tr>
+                        {{ else }}
+                        <tr><td colspan="8" class="no-data">No clusters found. Upload a kubeconfig to get started.</td></tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </form>
+        </div>
+    </main>
+
+    <script src="/static/js/table_utils.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // --- 1. Selection Logic (Unchanged) ---
+            const selectAll = document.getElementById('selectAll');
+            const checkboxes = document.querySelectorAll('input[name="c"]');
+            const rows = document.querySelectorAll('tr.cluster-row');
+
+            function updateRowStyle(checkbox) {
+                const row = checkbox.closest('tr');
+                if (checkbox.checked) row.classList.add('row-selected');
+                else row.classList.remove('row-selected');
+            }
+
+            if (selectAll) {
+                selectAll.addEventListener('change', function() {
+                    checkboxes.forEach((cb) => {
+                        const row = cb.closest('tr');
+                        if (row && row.style.display !== 'none') {
+                            cb.checked = this.checked;
+                            updateRowStyle(cb);
+                        }
+                    });
+                });
+            }
+
+            checkboxes.forEach(cb => {
+                cb.addEventListener('change', () => updateRowStyle(cb));
+            });
+
+            rows.forEach(row => {
+                row.addEventListener('click', function(e) {
+                    if (e.target.tagName === 'A' || e.target.tagName === 'INPUT') return;
+                    const checkbox = row.querySelector('input[name="c"]');
+                    if (checkbox) {
+                        checkbox.checked = !checkbox.checked;
+                        updateRowStyle(checkbox);
+                    }
+                });
+            });
+
+
+            // --- 2. Optimized Async Status Worker Pool ---
+            
+            const controller = new AbortController();
+            const signal = controller.signal;
+
+            window.addEventListener('beforeunload', () => {
+                controller.abort();
+            });
+
+            // Create a queue of rows to process
+            const queue = Array.from(rows);
+            const concurrencyLimit = 3; // Max active requests
+
+            // worker function: grabs next item from queue until empty
+            async function worker() {
+                while (queue.length > 0 && !signal.aborted) {
+                    const row = queue.shift(); // Get next cluster
+                    const clusterName = row.dataset.clusterName;
+                    
+                    if (!clusterName) continue;
+
+                    // Set Visual Loading State
+                    const statusCell = row.querySelector('.cell-status');
+                    statusCell.innerHTML = `<span class="status status-pending" style="background:transparent; padding:0; color:#9ca3af;"><div class="spinner"></div> Checking...</span>`;
+
+                    try {
+                        const response = await fetch(`/api/cluster/status?name=${encodeURIComponent(clusterName)}`, { signal });
+                        const data = await response.json();
+
+                        // Update Status
+                        let statusClass = 'status-unknown';
+                        if (data.Status === 'Online') statusClass = 'status-online';
+                        else if (data.Status === 'Offline') statusClass = 'status-offline';
+                        statusCell.innerHTML = `<span class="status ${statusClass}">${data.Status}</span>`;
+
+                        // Update Details
+                        row.querySelector('.cell-version').textContent = data.Version;
+                        row.querySelector('.cell-nodes').textContent = data.NodeCount;
+                        row.querySelector('.cell-latency').textContent = data.Latency;
+                        row.querySelector('.cell-apiserver').textContent = data.ApiServer || '-';
+
+                        // Update Provider Badge
+                        const provCell = row.querySelector('.cell-provider');
+                        let provHtml = `<span class="provider-badge provider-private">${data.Provider}</span>`;
+                        if (data.Provider.includes('AWS')) provHtml = `<span class="provider-badge provider-aws">AWS</span>`;
+                        else if (data.Provider.includes('GCP')) provHtml = `<span class="provider-badge provider-gcp">GCP</span>`;
+                        else if (data.Provider.includes('Azure')) provHtml = `<span class="provider-badge provider-azure">Azure</span>`;
+                        provCell.innerHTML = provHtml;
+
+                    } catch (err) {
+                        if (err.name !== 'AbortError') {
+                            statusCell.innerHTML = `<span class="status status-offline">Error</span>`;
+                        }
+                    }
+                }
+            }
+
+            // Start 'concurrencyLimit' workers in parallel
+            for (let i = 0; i < concurrencyLimit; i++) {
+                worker();
+            }
+        });
+    </script>
+
+    <style>
+        /* Spinner for async rows */
+        .spinner {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: var(--primary);
+            animation: spin 0.8s linear infinite;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</body>
+</html>

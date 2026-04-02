@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .PageBase.Title }} - K8s Universal Inspector</title>
+    <link rel="stylesheet" href="/style.css{{ .PageBase.CacheBuster }}">
+</head>
+<body>
+
+    {{ template "sidebar" .PageBase }}
+
+    <main class="main-content">
+        <div class="page-header">
+            <h1>Flux CD Resources</h1>
+            <span class="badge">{{ len .Resources }} Items</span>
+        </div>
+
+        <div class="search-container" style="width: 100%; margin-bottom: 20px;">
+            <input type="text" 
+                   id="fluxSearch" 
+                   onkeyup="filterTable('fluxSearch', 'fluxTable')" 
+                   placeholder="Search resources..." 
+                   class="dark-search-input">
+        </div>
+
+        <div class="container">
+            <table id="fluxTable">
+                <thead>
+                    <tr>
+                        <th class="sortable-header" data-sort-type="string">Cluster</th>
+                        <th class="sortable-header" data-sort-type="string">Namespace</th>
+                        <th class="sortable-header" data-sort-type="string">Type</th>
+                        <th class="sortable-header" data-sort-type="string">Name</th>
+                        <th class="sortable-header" data-sort-type="string">Status</th>
+                        <th>Revision / Message</th>
+                        <th class="sortable-header" data-sort-type="string">Age</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ range .Resources }}
+                    <tr class="
+                        {{ if eq .Status "Failed" }}row-error{{ end }} 
+                        {{ if eq .Status "Unknown" }}row-warning{{ end }}
+                    ">
+                        <td><span class="cluster-tag">{{ .Cluster }}</span></td>
+                        <td>{{ .Namespace }}</td>
+                        <td>
+                            {{ if eq .Type "GitRepo" }}<span class="badge badge-blue">GitRepo</span>{{ end }}
+                            {{ if eq .Type "Kustomization" }}<span class="badge badge-purple">Kust</span>{{ end }}
+                            {{ if eq .Type "HelmRelease" }}<span class="badge badge-orange">Helm</span>{{ end }}
+                        </td>
+                        <td style="font-weight: 500;">{{ .Name }}</td>
+                        <td>
+                            {{ if eq .Status "Ready" }}
+                                <span class="status status-online">Ready</span>
+                            {{ else if eq .Status "Failed" }}
+                                <span class="status status-offline">Failed</span>
+                            {{ else }}
+                                <span class="status status-pending">{{ .Status }}</span>
+                            {{ end }}
+                        </td>
+                        <td class="cell-message">
+                            {{ if .Message }}
+                                <div class="error-text" title="{{ .Message }}">⚠️ {{ .Message }}</div>
+                            {{ else }}
+                                <code class="revision-hash">{{ .Revision }}</code>
+                            {{ end }}
+                        </td>
+                        <td>{{ .Age }}</td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+        </div>
+    </main>
+
+    <script src="/static/js/table_utils.js"></script>
+    <style>
+        /* --- Search Bar Styling --- */
+        .dark-search-input {
+            width: 100%;
+            padding: 12px 16px;
+            font-size: 1rem;
+            color: #e5e7eb;              /* Light gray text */
+            background-color: #1f2937;   /* Dark slate background */
+            border: 1px solid #374151;   /* Subtle border */
+            border-radius: 8px;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        .dark-search-input::placeholder {
+            color: #9ca3af;
+        }
+
+        .dark-search-input:focus {
+            border-color: #3b82f6;       /* Blue border on focus */
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+
+        /* --- Standard Badges --- */
+        .badge-blue { background-color: #bfdbfe; color: #1e3a8a; padding: 2px 6px; border-radius: 4px; font-size: 0.85em; }
+        .badge-purple { background-color: #e9d5ff; color: #581c87; padding: 2px 6px; border-radius: 4px; font-size: 0.85em; }
+        .badge-orange { background-color: #fed7aa; color: #7c2d12; padding: 2px 6px; border-radius: 4px; font-size: 0.85em; }
+        
+        .cluster-tag { background: #d1d5db; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 600; color: #111827; display: inline-block; }
+        .revision-hash { font-family: 'Consolas', 'Monaco', monospace; font-size: 0.9em; color: #111; background: #e5e5e5; padding: 2px 6px; border-radius: 4px; border: 1px solid #d4d4d4; }
+        
+        /* --- Error Styles --- */
+        .row-error { 
+            background-color: #ffe4e6 !important; 
+            border-left: 5px solid #e11d48;       
+        }
+        .row-error td { color: #881337; }
+        .error-text { color: #be123c; font-weight: 700; max-width: 450px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+        .row-warning { background-color: #fffbeb !important; border-left: 5px solid #d97706; }
+    </style>
+</body>
+</html>

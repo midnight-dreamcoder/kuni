@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - K8s Universal Inspector</title>
+    <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
+</head>
+<body>
+
+    {{ template "sidebar" . }}
+
+    <main class="main-content">
+
+        <h1>
+            {{ .Title }}
+            <span class="title-count">({{ .TotalUniqueNamespaces }})</span>
+        </h1>
+
+        <div class="stats-container">
+            
+            <div class="stat-widget">
+                <h3>Namespaces by Cluster</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        {{ $colors := ColorSlice }}
+                        {{ $totalClusters := 0 }}
+                        {{ range .ClusterStats }}{{ $totalClusters = add $totalClusters .Count }}{{ end }}
+                        
+                        {{ range $i, $stat := .ClusterStats }}
+                            {{ $color := index $colors (mod $i 10) }}
+                            <div class="bar-segment" 
+                                 style="width: {{ printf "%.2f" (fdiv .Count $totalClusters | mulf 100.0) }}%; background-color: {{ $color }}; box-shadow: 0 0 10px 0px {{ $color }};"
+                                 data-tooltip="{{ .Name }}: {{ .Count }}"></div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stat-widget"> 
+                <h3>Namespace Status ({{ .TotalNamespaceInstances }} Total)</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        {{ range .NamespaceStatusStats }}
+                            <div class="bar-segment status-{{ .Status | ToLower }}" 
+                                 style="width: {{ printf "%.2f" (fdiv .Count $.TotalNamespaceInstances | mulf 100.0) }}%;"
+                                 title="{{ .Status }}: {{ .Count }}"></div>
+                        {{ end }}
+                    </div>
+                    <div class="chart-legend">
+                        {{ range .NamespaceStatusStats }}
+                        <div class="legend-item">
+                            <span class="legend-color status-{{ .Status | ToLower }}"></span>
+                            {{ .Status }} ({{ .Count }})
+                        </div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+        {{ if .ErrorLogs }}
+        <div class="errors">
+            <h2>Connection Errors</h2>
+            <ul>
+                {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
+            </ul>
+        </div>
+        {{ end }}
+
+        <div class="search-container">
+            <input type="text" id="searchInput" onkeyup="filterTable('searchInput', 'mainTable')" placeholder="Search by namespace or cluster...">
+        </div>
+
+        <div class="container" style="margin-top: 1.5rem;">
+            <table id="mainTable" style="table-layout: fixed;">
+                <thead id="tableHeader">
+                    <tr>
+                        <th class="sortable-header" data-sort-type="number" style="width: 100px;">Active</th>
+                        <th class="sortable-header col-ns" data-sort-type="string">Namespace</th>
+                        <th class="sortable-header col-clusters" data-sort-type="string">Clusters Present On</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    {{ range .Namespaces }}
+                    <tr>
+                        <td>
+                            {{ $active := index .StatusCounts "Active" }}
+                            {{ if $active }}
+                                <span class="status status-success" style="font-weight: 700;">{{ $active }}</span>
+                            {{ else }}
+                                <span class="status status-muted">-</span>
+                            {{ end }}
+                        </td>
+                        <td class="col-ns">
+                            <a href="{{ MakeURL $.QueryString "/namespace/detail" "name" .Name }}" class="deployment-link">
+                                {{ .Name }}
+                            </a>
+                        </td>
+                        <td class="col-clusters">
+                            {{ range .Clusters }}
+                                <a href="{{ MakeURL $.QueryString "/cluster/detail" "cluster_name" . }}" class="tag-link">
+                                    <span class="cluster-tag">{{ . }}</span>
+                                </a>
+                            {{ end }}
+                        </td>
+                    </tr>
+                    {{ else }}
+                    <tr>
+                        <td colspan="3" class="no-data">No namespaces found.</td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+            <div class="footer">
+                Last refreshed: {{ .LastRefreshed }}
+            </div>
+        </div>
+
+    </main>
+
+    <div id="global-tooltip"></div>
+
+    <script src="/static/js/table_utils.js"></script>
+    <script>
+        const tooltip = document.getElementById('global-tooltip');
+        document.querySelectorAll('.bar-segment').forEach(el => {
+            el.addEventListener('mouseenter', e => {
+                let text = el.getAttribute('data-tooltip');
+                if (!text && el.getAttribute('title')) {
+                    text = el.getAttribute('title');
+                    el.setAttribute('data-tooltip', text);
+                    el.removeAttribute('title'); // Prevent native tooltip
+                }
+                if (text) {
+                    tooltip.textContent = text;
+                    tooltip.style.opacity = '1';
+                }
+            });
+            el.addEventListener('mousemove', e => {
+                tooltip.style.left = (e.clientX + 15) + 'px';
+                tooltip.style.top = (e.clientY + 15) + 'px';
+            });
+            el.addEventListener('mouseleave', () => {
+                tooltip.style.opacity = '0';
+            });
+        });
+    </script>
+</body>
+</html>

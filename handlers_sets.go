@@ -1,0 +1,530 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"sort"
+	"time"
+
+	"github.com/labstack/echo/v4"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// --- REPLICA SETS ---
+
+// handleGetReplicaSets lists all ReplicaSets from selected clusters
+func handleGetReplicaSets(pattern string) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "ReplicaSets", "replicasets")
+
+		configsToProcess, err := getConfigsToProcess(c, pattern)
+		if err != nil {
+			return c.String(500, "Error finding configs")
+		}
+
+		clients, clientErrors := createClients(configsToProcess)
+		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
+
+		type rsResult struct {
+			ClusterName string
+			Items       []ReplicaSetInfo
+			Stat        ClusterStat
+			NSCount     map[string]int
+		}
+
+		fetchRS := func(client KubeClient) (rsResult, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			list, err := client.Clientset.AppsV1().ReplicaSets("").List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return rsResult{}, err
+			}
+			var items []ReplicaSetInfo
+			nsCount := make(map[string]int)
+			for _, rs := range list.Items {
+				owner := "-"
+				if len(rs.OwnerReferences) > 0 {
+					owner = rs.OwnerReferences[0].Kind + "/" + rs.OwnerReferences[0].Name
+				}
+				var replicas int32 = 1
+				if rs.Spec.Replicas != nil {
+					replicas = *rs.Spec.Replicas
+				}
+				if replicas == 0 {
+					continue
+				}
+				readyStr := fmt.Sprintf("%d/%d", rs.Status.ReadyReplicas, replicas)
+				items = append(items, ReplicaSetInfo{
+					Cluster:           client.ContextName,
+					Namespace:         rs.Namespace,
+					Name:              rs.Name,
+					Ready:             readyStr,
+					Owner:             owner,
+					Replicas:          int(replicas),
+					ReadyReplicas:     int(rs.Status.ReadyReplicas),
+					Age:               formatAge(rs.CreationTimestamp),
+					CreationTimestamp: rs.CreationTimestamp.Time,
+				})
+				nsCount[rs.Namespace]++
+			}
+			return rsResult{
+				ClusterName: client.ContextName,
+				Items:       items,
+				Stat:        ClusterStat{Name: client.ContextName, Count: len(items)},
+				NSCount:     nsCount,
+			}, nil
+		}
+
+		results, fetchErrors := ParallelFetch(clients, fetchRS)
+		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
+
+		var allRS []ReplicaSetInfo
+		var cStats []ClusterStat
+		gNS := make(map[string]int)
+
+		for _, res := range results {
+			allRS = append(allRS, res.Items...)
+			cStats = append(cStats, res.Stat)
+			for n, c := range res.NSCount {
+				gNS[n] += c
+			}
+		}
+		// Sort by Age (Newest first)
+		sort.Slice(allRS, func(i, j int) bool {
+			return allRS[i].CreationTimestamp.After(allRS[j].CreationTimestamp)
+		})
+
+		var nsStats []NamespaceStat
+		for n, c := range gNS {
+			nsStats = append(nsStats, NamespaceStat{Name: n, Count: c})
+		}
+		sort.Slice(nsStats, func(i, j int) bool { return nsStats[i].Count > nsStats[j].Count })
+
+		return c.Render(200, "replicasets.html", ReplicaSetPageData{
+			PageBase:         base,
+			ReplicaSets:      allRS,
+			TotalReplicaSets: len(allRS),
+			ClusterStats:     cStats,
+			NamespaceStats:   nsStats,
+		})
+	}
+}
+
+// handleGetReplicaSetDetail fetches details for a single ReplicaSet
+func handleGetReplicaSetDetail(pattern string) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		cluster := c.QueryParam("cluster_name")
+		ns := c.QueryParam("namespace")
+		name := c.QueryParam("name")
+
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, name, "replicasets")
+
+		clientset, err := findClient(pattern, cluster)
+		if err != nil {
+			return c.String(404, "Cluster not found")
+		}
+
+		data := ReplicaSetDetailPageData{
+			PageBase:       base,
+			ClusterName:    cluster,
+			NamespaceName:  ns,
+			ReplicaSetName: name,
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		rs, err := clientset.AppsV1().ReplicaSets(ns).Get(ctx, name, metav1.GetOptions{})
+		if err == nil {
+			var replicas int32 = 1
+			if rs.Spec.Replicas != nil {
+				replicas = *rs.Spec.Replicas
+			}
+			data.Status = fmt.Sprintf("%d/%d Ready", rs.Status.ReadyReplicas, replicas)
+			data.Selector = metav1.FormatLabelSelector(rs.Spec.Selector)
+			data.Age = formatAge(rs.CreationTimestamp)
+			if len(rs.OwnerReferences) > 0 {
+				data.OwnerName = rs.OwnerReferences[0].Name
+				data.OwnerKind = rs.OwnerReferences[0].Kind
+			} else {
+				data.OwnerName = "None"
+			}
+
+			for _, c := range rs.Spec.Template.Spec.Containers {
+				data.Images = append(data.Images, c.Image)
+			}
+
+			// Fetch Pods
+			podList, _ := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: data.Selector})
+			for _, p := range podList.Items {
+				readyCount := 0
+				restartCount := 0
+				for _, cs := range p.Status.ContainerStatuses {
+					if cs.Ready {
+						readyCount++
+					}
+					restartCount += int(cs.RestartCount)
+				}
+				readyStr := fmt.Sprintf("%d/%d", readyCount, len(p.Spec.Containers))
+				data.Pods = append(data.Pods, PodInfo{
+					Cluster: cluster, Namespace: ns, Name: p.Name, Status: getPodDisplayStatus(p), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
+					Ready: readyStr, Restarts: restartCount, PodIP: p.Status.PodIP,
+				})
+			}
+		}
+
+		// Fetch Events
+		events, _ := clientset.CoreV1().Events(ns).List(ctx, metav1.ListOptions{FieldSelector: "involvedObject.name=" + name})
+		for _, e := range events.Items {
+			data.Events = append(data.Events, EventInfo{
+				Type: e.Type, Reason: e.Reason, Message: e.Message, Count: int(e.Count), LastSeen: formatAge(e.LastTimestamp),
+			})
+		}
+
+		return c.Render(200, "replicaset-detail.html", data)
+	}
+}
+
+// ReplicaSetDetailAPIResponse is the JSON response for the API
+type ReplicaSetDetailAPIResponse struct {
+	Status string
+	Age    string
+	Images []string
+	Pods   []PodInfo
+	Events []EventInfo
+}
+
+// handleGetReplicaSetDetailAPI returns JSON data for the replicaset detail page
+func handleGetReplicaSetDetailAPI(pattern string) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		cluster := c.QueryParam("cluster_name")
+		ns := c.QueryParam("namespace")
+		name := c.QueryParam("name")
+
+		clientset, err := findClient(pattern, cluster)
+		if err != nil {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "Cluster not found"})
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		rs, err := clientset.AppsV1().ReplicaSets(ns).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "ReplicaSet not found"})
+		}
+
+		resp := ReplicaSetDetailAPIResponse{}
+
+		var replicas int32 = 1
+		if rs.Spec.Replicas != nil {
+			replicas = *rs.Spec.Replicas
+		}
+		resp.Status = fmt.Sprintf("%d/%d Ready", rs.Status.ReadyReplicas, replicas)
+		resp.Age = formatAge(rs.CreationTimestamp)
+
+		for _, c := range rs.Spec.Template.Spec.Containers {
+			resp.Images = append(resp.Images, c.Image)
+		}
+
+		// Fetch Pods
+		podList, _ := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: metav1.FormatLabelSelector(rs.Spec.Selector)})
+		for _, p := range podList.Items {
+			readyCount := 0
+			restartCount := 0
+			for _, cs := range p.Status.ContainerStatuses {
+				if cs.Ready {
+					readyCount++
+				}
+				restartCount += int(cs.RestartCount)
+			}
+			readyStr := fmt.Sprintf("%d/%d", readyCount, len(p.Spec.Containers))
+
+			resp.Pods = append(resp.Pods, PodInfo{
+				Cluster: cluster, Namespace: ns, Name: p.Name, Status: getPodDisplayStatus(p), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
+				Ready: readyStr, Restarts: restartCount, PodIP: p.Status.PodIP, CreationTimestamp: p.CreationTimestamp.Time,
+			})
+		}
+		sort.Slice(resp.Pods, func(i, j int) bool {
+			return resp.Pods[i].CreationTimestamp.After(resp.Pods[j].CreationTimestamp)
+		})
+
+		// Fetch Events
+		events, _ := clientset.CoreV1().Events(ns).List(ctx, metav1.ListOptions{FieldSelector: "involvedObject.name=" + name})
+		sort.Slice(events.Items, func(i, j int) bool {
+			return events.Items[i].LastTimestamp.Time.After(events.Items[j].LastTimestamp.Time)
+		})
+		for _, e := range events.Items {
+			resp.Events = append(resp.Events, EventInfo{
+				Type: e.Type, Reason: e.Reason, Message: e.Message, Count: int(e.Count), LastSeen: formatAge(e.LastTimestamp),
+			})
+		}
+
+		return c.JSON(http.StatusOK, resp)
+	}
+}
+
+// --- DAEMON SETS ---
+
+// handleGetDaemonSets lists all DaemonSets
+func handleGetDaemonSets(pattern string) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "DaemonSets", "daemonsets")
+
+		configsToProcess, err := getConfigsToProcess(c, pattern)
+		if err != nil {
+			return c.String(500, "Error finding configs")
+		}
+
+		clients, clientErrors := createClients(configsToProcess)
+		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
+
+		type dsResult struct {
+			ClusterName string
+			Items       []DaemonSetInfo
+			Stat        ClusterStat
+		}
+
+		fetchDS := func(client KubeClient) (dsResult, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			list, err := client.Clientset.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return dsResult{}, err
+			}
+			var items []DaemonSetInfo
+			for _, ds := range list.Items {
+				readyStr := fmt.Sprintf("%d/%d", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled)
+				items = append(items, DaemonSetInfo{
+					Cluster:   client.ContextName,
+					Namespace: ds.Namespace,
+					Name:      ds.Name,
+					Ready:     readyStr,
+					Age:       formatAge(ds.CreationTimestamp),
+				})
+			}
+			return dsResult{
+				ClusterName: client.ContextName,
+				Items:       items,
+				Stat:        ClusterStat{Name: client.ContextName, Count: len(items)},
+			}, nil
+		}
+
+		results, fetchErrors := ParallelFetch(clients, fetchDS)
+		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
+
+		var allDS []DaemonSetInfo
+		var cStats []ClusterStat
+		for _, res := range results {
+			allDS = append(allDS, res.Items...)
+			cStats = append(cStats, res.Stat)
+		}
+
+		return c.Render(200, "daemonsets.html", DaemonSetPageData{
+			PageBase:        base,
+			DaemonSets:      allDS,
+			TotalDaemonSets: len(allDS),
+			ClusterStats:    cStats,
+		})
+	}
+}
+
+// handleGetDaemonSetDetail fetches details for a single DaemonSet
+func handleGetDaemonSetDetail(pattern string) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		cluster := c.QueryParam("cluster_name")
+		ns := c.QueryParam("namespace")
+		name := c.QueryParam("name")
+
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, name, "daemonsets")
+
+		clientset, err := findClient(pattern, cluster)
+		if err != nil {
+			return c.String(404, "Cluster not found")
+		}
+
+		data := DaemonSetDetailPageData{
+			PageBase:      base,
+			ClusterName:   cluster,
+			NamespaceName: ns,
+			DaemonSetName: name,
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		ds, err := clientset.AppsV1().DaemonSets(ns).Get(ctx, name, metav1.GetOptions{})
+		if err == nil {
+			data.Overview.Status = fmt.Sprintf("%d Desired, %d Ready", ds.Status.DesiredNumberScheduled, ds.Status.NumberReady)
+			data.Overview.Selector = metav1.FormatLabelSelector(ds.Spec.Selector)
+			data.Overview.Age = formatAge(ds.CreationTimestamp)
+
+			// Fetch Pods
+			podList, _ := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: data.Overview.Selector})
+			for _, p := range podList.Items {
+				readyCount := 0
+				restartCount := 0
+				for _, cs := range p.Status.ContainerStatuses {
+					if cs.Ready {
+						readyCount++
+					}
+					restartCount += int(cs.RestartCount)
+				}
+				readyStr := fmt.Sprintf("%d/%d", readyCount, len(p.Spec.Containers))
+				data.Pods = append(data.Pods, PodInfo{
+					Cluster: cluster, Namespace: ns, Name: p.Name, Status: getPodDisplayStatus(p), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
+					Ready: readyStr, Restarts: restartCount, PodIP: p.Status.PodIP,
+				})
+			}
+		}
+
+		events, _ := clientset.CoreV1().Events(ns).List(ctx, metav1.ListOptions{FieldSelector: "involvedObject.name=" + name})
+		for _, e := range events.Items {
+			data.Events = append(data.Events, EventInfo{
+				Type: e.Type, Reason: e.Reason, Message: e.Message, Count: int(e.Count), LastSeen: formatAge(e.LastTimestamp),
+			})
+		}
+
+		return c.Render(200, "daemonset-detail.html", data)
+	}
+}
+
+// --- STATEFUL SETS ---
+
+// handleGetStatefulSets lists all StatefulSets
+func handleGetStatefulSets(pattern string) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, "StatefulSets", "statefulsets")
+
+		configsToProcess, err := getConfigsToProcess(c, pattern)
+		if err != nil {
+			return c.String(500, "Error finding configs")
+		}
+
+		clients, clientErrors := createClients(configsToProcess)
+		base.ErrorLogs = append(base.ErrorLogs, clientErrors...)
+
+		type ssResult struct {
+			ClusterName string
+			Items       []StatefulSetInfo
+			Stat        ClusterStat
+		}
+
+		fetchSS := func(client KubeClient) (ssResult, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			list, err := client.Clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return ssResult{}, err
+			}
+			var items []StatefulSetInfo
+			for _, ss := range list.Items {
+				var replicas int32 = 1
+				if ss.Spec.Replicas != nil {
+					replicas = *ss.Spec.Replicas
+				}
+				readyStr := fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, replicas)
+				items = append(items, StatefulSetInfo{
+					Cluster:   client.ContextName,
+					Namespace: ss.Namespace,
+					Name:      ss.Name,
+					Ready:     readyStr,
+					Age:       formatAge(ss.CreationTimestamp),
+				})
+			}
+			return ssResult{
+				ClusterName: client.ContextName,
+				Items:       items,
+				Stat:        ClusterStat{Name: client.ContextName, Count: len(items)},
+			}, nil
+		}
+
+		results, fetchErrors := ParallelFetch(clients, fetchSS)
+		base.ErrorLogs = append(base.ErrorLogs, fetchErrors...)
+
+		var allSS []StatefulSetInfo
+		var cStats []ClusterStat
+		for _, res := range results {
+			allSS = append(allSS, res.Items...)
+			cStats = append(cStats, res.Stat)
+		}
+
+		return c.Render(200, "statefulsets.html", StatefulSetPageData{
+			PageBase:          base,
+			StatefulSets:      allSS,
+			TotalStatefulSets: len(allSS),
+			ClusterStats:      cStats,
+		})
+	}
+}
+
+// handleGetStatefulSetDetail fetches details for a single StatefulSet
+func handleGetStatefulSetDetail(pattern string) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		cluster := c.QueryParam("cluster_name")
+		ns := c.QueryParam("namespace")
+		name := c.QueryParam("name")
+
+		// UPDATED: Use GetBaseData
+		base := GetBaseData(c, name, "statefulsets")
+
+		clientset, err := findClient(pattern, cluster)
+		if err != nil {
+			return c.String(404, "Cluster not found")
+		}
+
+		data := StatefulSetDetailPageData{
+			PageBase:        base,
+			ClusterName:     cluster,
+			NamespaceName:   ns,
+			StatefulSetName: name,
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		ss, err := clientset.AppsV1().StatefulSets(ns).Get(ctx, name, metav1.GetOptions{})
+		if err == nil {
+			var replicas int32 = 1
+			if ss.Spec.Replicas != nil {
+				replicas = *ss.Spec.Replicas
+			}
+			data.Overview.Status = fmt.Sprintf("%d/%d Ready", ss.Status.ReadyReplicas, replicas)
+			data.Overview.Selector = metav1.FormatLabelSelector(ss.Spec.Selector)
+			data.Overview.ServiceName = ss.Spec.ServiceName
+			data.Overview.Age = formatAge(ss.CreationTimestamp)
+
+			podList, _ := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: data.Overview.Selector})
+			for _, p := range podList.Items {
+				readyCount := 0
+				restartCount := 0
+				for _, cs := range p.Status.ContainerStatuses {
+					if cs.Ready {
+						readyCount++
+					}
+					restartCount += int(cs.RestartCount)
+				}
+				readyStr := fmt.Sprintf("%d/%d", readyCount, len(p.Spec.Containers))
+				data.Pods = append(data.Pods, PodInfo{
+					Cluster: cluster, Namespace: ns, Name: p.Name, Status: getPodDisplayStatus(p), Node: p.Spec.NodeName, Age: formatAge(p.CreationTimestamp),
+					Ready: readyStr, Restarts: restartCount, PodIP: p.Status.PodIP,
+				})
+			}
+		}
+
+		events, _ := clientset.CoreV1().Events(ns).List(ctx, metav1.ListOptions{FieldSelector: "involvedObject.name=" + name})
+		for _, e := range events.Items {
+			data.Events = append(data.Events, EventInfo{
+				Type: e.Type, Reason: e.Reason, Message: e.Message, Count: int(e.Count), LastSeen: formatAge(e.LastTimestamp),
+			})
+		}
+
+		return c.Render(200, "statefulset-detail.html", data)
+	}
+}

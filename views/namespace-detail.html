@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - K8s Universal Inspector</title>
+    <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+</head>
+<body>
+
+    {{ template "sidebar" . }}
+
+    <main class="main-content">
+        <h1>{{ .NamespaceName }}</h1>
+        <div class="page-subtitle">
+            Aggregated view across <strong>{{ len .ClusterNames }}</strong> clusters
+        </div>
+
+        {{ if .ErrorLogs }}
+        <div class="errors">
+            <h2>Errors</h2>
+            <ul>{{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}</ul>
+        </div>
+        {{ end }}
+
+        <div class="stats-container three-col">
+            
+            <div class="stat-widget">
+                <h3>Workloads</h3>
+                <div style="padding: 1.5rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div>
+                        <div style="font-size: 0.8rem; color: #9ca3af;">Deployments</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #e5e7eb;" id="stat-deployments">{{ .GlobalStats.TotalDeployments }}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.8rem; color: #9ca3af;">Pods</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #e5e7eb;" id="stat-pods">{{ .GlobalStats.TotalPods }}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.8rem; color: #9ca3af;">DaemonSets</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #e5e7eb;" id="stat-daemonsets">{{ .GlobalStats.TotalDaemonSets }}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.8rem; color: #9ca3af;">StatefulSets</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #e5e7eb;" id="stat-statefulsets">{{ .GlobalStats.TotalStatefulSets }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stat-widget">
+                <h3>Pod Health</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container" id="podHealthChart">
+                        {{ range $status, $count := .GlobalStats.PodStatus }}
+                            <div class="bar-segment status-{{ $status | ToLower }}" 
+                                 style="width: {{ printf "%.2f" (fdiv $count $.GlobalStats.TotalPods | mulf 100.0) }}%;"
+                                 title="{{ $status }}: {{ $count }}"></div>
+                        {{ end }}
+                    </div>
+                    <div class="chart-legend" id="podHealthLegend">
+                        {{ range $status, $count := .GlobalStats.PodStatus }}
+                        <div class="legend-item">
+                            <span class="legend-color status-{{ $status | ToLower }}"></span>
+                            {{ $status }} ({{ $count }})
+                        </div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+
+            <div class="stat-widget">
+                <h3>Network & Config</h3>
+                <div style="padding: 1.5rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div>
+                        <div style="font-size: 0.8rem; color: #9ca3af;">Services</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #22d3ee;" id="stat-services">{{ .GlobalStats.TotalServices }}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.8rem; color: #9ca3af;">Ingresses</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #f59e0b;" id="stat-ingresses">{{ .GlobalStats.TotalIngresses }}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.8rem; color: #9ca3af;">ConfigMaps</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #e5e7eb;" id="stat-configmaps">{{ .GlobalStats.TotalConfigMaps }}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.8rem; color: #9ca3af;">Secrets</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #e5e7eb;" id="stat-secrets">{{ .GlobalStats.TotalSecrets }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="search-container" style="margin-top: 2rem;">
+            <input type="text" id="searchInput" onkeyup="filterTable('searchInput', 'deploymentTable'); filterTable('searchInput', 'daemonsetTable'); filterTable('searchInput', 'statefulsetTable'); filterTable('searchInput', 'replicasetTable')" placeholder="Filter resources...">
+        </div>
+
+        {{ if .AllDeployments }}
+        <div class="container">
+            <h2>Deployments</h2>
+            <table id="deploymentTable">
+                <thead>
+                    <tr>
+                        <th style="width: 40px; text-align: center;"></th>
+                        <th class="sortable-header" data-sort-type="string">Cluster</th>
+                        <th class="sortable-header" data-sort-type="string">Name</th>
+                        <th class="sortable-header" data-sort-type="string">Ready</th>
+                        <th class="sortable-header" data-sort-type="string">Images</th>
+                        <th class="sortable-header sort-asc" data-sort-type="duration">Age</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ range .AllDeployments }}
+                    <tr>
+                        <td style="text-align: center;"><span class="ready-icon" data-ready="{{ .Ready }}"></span></td>
+                        <td class="cluster-name"><a href="{{ MakeURL $.QueryString "/cluster/detail" "cluster_name" .Cluster }}" class="deployment-link">{{ .Cluster }}</a></td>
+                        <td><a href="{{ MakeURL $.QueryString "/deployment/detail" "name" .Name }}" class="deployment-link">{{ .Name }}</a></td>
+                        <td>{{ .Ready }}</td>
+                        <td class="col-tags">{{ range .Images }}<span class="image-tag">{{ . }}</span>{{ end }}</td>
+                        <td>{{ .Age }}</td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+        </div>
+        {{ end }}
+
+        {{ if .AllDaemonSets }}
+        <div class="container">
+            <h2>DaemonSets</h2>
+            <table id="daemonsetTable">
+                <thead>
+                    <tr>
+                        <th style="width: 40px; text-align: center;"></th>
+                        <th class="sortable-header" data-sort-type="string">Cluster</th>
+                        <th class="sortable-header" data-sort-type="string">Name</th>
+                        <th class="sortable-header" data-sort-type="string">Ready</th>
+                        <th class="sortable-header sort-asc" data-sort-type="duration">Age</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ range .AllDaemonSets }}
+                    <tr>
+                        <td style="text-align: center;"><span class="ready-icon" data-ready="{{ .Ready }}"></span></td>
+                        <td class="cluster-name"><a href="{{ MakeURL $.QueryString "/cluster/detail" "cluster_name" .Cluster }}" class="deployment-link">{{ .Cluster }}</a></td>
+                        <td><a href="{{ MakeURL $.QueryString "/daemonset/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
+                        <td>{{ .Ready }}</td>
+                        <td>{{ .Age }}</td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+        </div>
+        {{ end }}
+
+        {{ if .AllStatefulSets }}
+        <div class="container">
+            <h2>StatefulSets</h2>
+            <table id="statefulsetTable">
+                <thead>
+                    <tr>
+                        <th style="width: 40px; text-align: center;"></th>
+                        <th class="sortable-header" data-sort-type="string">Cluster</th>
+                        <th class="sortable-header" data-sort-type="string">Name</th>
+                        <th class="sortable-header" data-sort-type="string">Ready</th>
+                        <th class="sortable-header sort-asc" data-sort-type="duration">Age</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ range .AllStatefulSets }}
+                    <tr>
+                        <td style="text-align: center;"><span class="ready-icon" data-ready="{{ .Ready }}"></span></td>
+                        <td class="cluster-name"><a href="{{ MakeURL $.QueryString "/cluster/detail" "cluster_name" .Cluster }}" class="deployment-link">{{ .Cluster }}</a></td>
+                        <td><a href="{{ MakeURL $.QueryString "/statefulset/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
+                        <td>{{ .Ready }}</td>
+                        <td>{{ .Age }}</td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+        </div>
+        {{ end }}
+
+        {{ if .AllReplicaSets }}
+        <div class="container">
+            <h2>ReplicaSets</h2>
+            <table id="replicasetTable">
+                <thead>
+                    <tr>
+                        <th style="width: 40px; text-align: center;"></th>
+                        <th class="sortable-header" data-sort-type="string">Cluster</th>
+                        <th class="sortable-header" data-sort-type="string">Name</th>
+                        <th class="sortable-header" data-sort-type="string">Ready</th>
+                        <th class="sortable-header sort-asc" data-sort-type="duration">Age</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ range .AllReplicaSets }}
+                    <tr>
+                        <td style="text-align: center;"><span class="ready-icon" data-ready="{{ .Ready }}"></span></td>
+                        <td class="cluster-name"><a href="{{ MakeURL $.QueryString "/cluster/detail" "cluster_name" .Cluster }}" class="deployment-link">{{ .Cluster }}</a></td>
+                        <td><a href="{{ MakeURL $.QueryString "/replicaset/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
+                        <td>{{ .Ready }}</td>
+                        <td>{{ .Age }}</td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+        </div>
+        {{ end }}
+
+        <div class="container">
+            <h2>Pods (<span id="count-pods">{{ len .AllPods }}</span>)</h2>
+            <table id="podTable">
+                <thead>
+                    <tr>
+                        <th style="width: 40px; text-align: center;"></th>
+                        <th class="sortable-header" data-sort-type="string">Cluster</th>
+                        <th class="sortable-header" data-sort-type="string">Name</th>
+                        <th class="sortable-header" data-sort-type="string">Ready</th>
+                        <th class="sortable-header" data-sort-type="string">Status</th>
+                        <th class="sortable-header" data-sort-type="number">Restarts</th>
+                        <th class="sortable-header" data-sort-type="string">Node</th>
+                        <th class="sortable-header" data-sort-type="string">IP</th>
+                        <th class="sortable-header sort-asc" data-sort-type="duration">Age</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ range .AllPods }}
+                    <tr>
+                        <td style="text-align: center;"><span class="pod-icon" data-status="{{ .Status }}"></span></td>
+                        <td class="cluster-name"><a href="{{ MakeURL $.QueryString "/cluster/detail" "cluster_name" .Cluster }}" class="deployment-link">{{ .Cluster }}</a></td>
+                        <td><a href="{{ MakeURL $.QueryString "/pod/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
+                        <td>{{ .Ready }}</td>
+                        <td><span class="status status-{{ .Status | ToLower }}">{{ .Status }}</span></td>
+                        <td>{{ .Restarts }}</td>
+                        <td><a href="{{ MakeURL $.QueryString "/node/detail" "name" .Node "cluster_name" .Cluster }}" class="deployment-link">{{ .Node }}</a></td>
+                        <td>{{ .PodIP }}</td>
+                        <td>{{ .Age }}</td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+        </div>
+
+        {{ if or .AllServices .AllIngresses }}
+        <div class="container">
+            <h2>Network</h2>
+            <table id="networkTable">
+                <thead>
+                    <tr>
+                        <th class="sortable-header" data-sort-type="string">Cluster</th>
+                        <th class="sortable-header" data-sort-type="string">Kind</th>
+                        <th class="sortable-header" data-sort-type="string">Name</th>
+                        <th class="sortable-header" data-sort-type="string">Info</th>
+                        <th class="sortable-header sort-asc" data-sort-type="duration">Age</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ range .AllServices }}
+                    <tr>
+                        <td class="cluster-name"><a href="{{ MakeURL $.QueryString "/cluster/detail" "cluster_name" .Cluster }}" class="deployment-link">{{ .Cluster }}</a></td>
+                        <td><span class="port-tag">SVC</span></td>
+                        <td><a href="{{ MakeURL $.QueryString "/service/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
+                        <td>{{ .Type }} | {{ .ClusterIP }}</td>
+                        <td>{{ .Age }}</td>
+                    </tr>
+                    {{ end }}
+                    {{ range .AllIngresses }}
+                    <tr>
+                        <td class="cluster-name"><a href="{{ MakeURL $.QueryString "/cluster/detail" "cluster_name" .Cluster }}" class="deployment-link">{{ .Cluster }}</a></td>
+                        <td><span class="port-tag" style="color:#ec4899; background: rgba(236, 72, 153, 0.1);">ING</span></td>
+                        <td><a href="{{ MakeURL $.QueryString "/ingress/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
+                        <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">{{ .Hosts }}</td>
+                        <td>{{ .Age }}</td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+        </div>
+        {{ end }}
+
+        {{ if or .AllConfigMaps .AllSecrets }}
+        <div class="container">
+            <h2>Configuration</h2>
+            <table id="configTable">
+                <thead>
+                    <tr>
+                        <th class="sortable-header" data-sort-type="string">Cluster</th>
+                        <th class="sortable-header" data-sort-type="string">Kind</th>
+                        <th class="sortable-header" data-sort-type="string">Name</th>
+                        <th class="sortable-header" data-sort-type="string">Details</th>
+                        <th class="sortable-header sort-asc" data-sort-type="duration">Age</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{ range .AllConfigMaps }}
+                    <tr>
+                        <td class="cluster-name"><a href="{{ MakeURL $.QueryString "/cluster/detail" "cluster_name" .Cluster }}" class="deployment-link">{{ .Cluster }}</a></td>
+                        <td><span class="image-tag">CM</span></td>
+                        <td><a href="{{ MakeURL $.QueryString "/configmap/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
+                        <td>{{ .DataKeys }} keys</td>
+                        <td>{{ .Age }}</td>
+                    </tr>
+                    {{ end }}
+                    {{ range .AllSecrets }}
+                    <tr>
+                        <td class="cluster-name"><a href="{{ MakeURL $.QueryString "/cluster/detail" "cluster_name" .Cluster }}" class="deployment-link">{{ .Cluster }}</a></td>
+                        <td><span class="image-tag" style="color:#ef4444; background:rgba(239, 68, 68, 0.1);">SEC</span></td>
+                        <td><a href="{{ MakeURL $.QueryString "/secret/detail" "name" .Name "namespace" $.NamespaceName "cluster_name" .Cluster }}" class="deployment-link">{{ .Name }}</a></td>
+                        <td>{{ .Type }}</td>
+                        <td>{{ .Age }}</td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+        </div>
+        {{ end }}
+
+    </main>
+
+    <script src="/static/js/table_utils.js"></script>
+    <script>
+        // Dynamic Update Logic
+        document.addEventListener('DOMContentLoaded', function() {
+            // Poll every 5 seconds
+            setInterval(updateNamespaceData, 5000);
+            
+            // Initial Icon Render
+            document.querySelectorAll('.ready-icon').forEach(el => el.innerHTML = getReadyIcon(el.dataset.ready));
+            document.querySelectorAll('.pod-icon').forEach(el => el.innerHTML = getStatusIcon(el.dataset.status));
+        });
+
+        function updateNamespaceData() {
+            // Construct API URL preserving current query params (name, c, etc.)
+            const currentParams = new URLSearchParams(window.location.search);
+            const fetchUrl = `/api/namespace/detail?${currentParams.toString()}`;
+
+            fetch(fetchUrl)
+                .then(response => {
+                    if (!response.ok) throw new Error("API Error");
+                    return response.json();
+                })
+                .then(data => {
+                    updateStats(data.GlobalStats);
+                    updateTables(data);
+                })
+                .catch(console.error);
+        }
+
+        function updateStats(stats) {
+            setSafeText('stat-deployments', stats.TotalDeployments);
+            setSafeText('stat-pods', stats.TotalPods);
+            setSafeText('stat-daemonsets', stats.TotalDaemonSets);
+            setSafeText('stat-statefulsets', stats.TotalStatefulSets);
+            setSafeText('stat-services', stats.TotalServices);
+            setSafeText('stat-ingresses', stats.TotalIngresses);
+            setSafeText('stat-configmaps', stats.TotalConfigMaps);
+            setSafeText('stat-secrets', stats.TotalSecrets);
+
+            // Update Chart
+            const chartContainer = document.getElementById('podHealthChart');
+            const legendContainer = document.getElementById('podHealthLegend');
+            if (chartContainer && legendContainer) {
+                chartContainer.innerHTML = '';
+                legendContainer.innerHTML = '';
+                if (stats.TotalPods > 0) {
+                    for (const [status, count] of Object.entries(stats.PodStatus)) {
+                    const pct = (count / stats.TotalPods) * 100;
+                    const lowerStatus = status.toLowerCase();
+                    
+                    // Bar Segment
+                    const bar = document.createElement('div');
+                    bar.className = `bar-segment status-${lowerStatus}`;
+                    bar.style.width = `${pct.toFixed(2)}%`;
+                    bar.title = `${status}: ${count}`;
+                    chartContainer.appendChild(bar);
+
+                    // Legend Item
+                    const leg = document.createElement('div');
+                    leg.className = 'legend-item';
+                    leg.innerHTML = `<span class="legend-color status-${lowerStatus}"></span> ${status} (${count})`;
+                    legendContainer.appendChild(leg);
+                    }
+                }
+            }
+        }
+
+        function updateTables(data) {
+            const ns = new URLSearchParams(window.location.search).get('name');
+            
+            updateTableBody('deploymentTable', data.Deployments, item => `
+                <td style="text-align: center;">${getReadyIcon(item.Ready)}</td>
+                <td class="cluster-name"><a href="/cluster/detail?cluster_name=${encodeURIComponent(item.Cluster)}${getQueryString()}" class="deployment-link">${item.Cluster}</a></td>
+                <td><a href="/deployment/detail?name=${encodeURIComponent(item.Name)}${getQueryString()}" class="deployment-link">${item.Name}</a></td>
+                <td>${item.Ready}</td>
+                <td class="col-tags">${(item.Images || []).map(img => `<span class="image-tag">${img}</span>`).join('')}</td>
+                <td>${item.Age}</td>
+            `);
+
+            updateTableBody('daemonsetTable', data.DaemonSets, item => `
+                <td style="text-align: center;">${getReadyIcon(item.Ready)}</td>
+                <td class="cluster-name"><a href="/cluster/detail?cluster_name=${encodeURIComponent(item.Cluster)}${getQueryString()}" class="deployment-link">${item.Cluster}</a></td>
+                <td><a href="/daemonset/detail?name=${encodeURIComponent(item.Name)}&namespace=${encodeURIComponent(ns)}&cluster_name=${encodeURIComponent(item.Cluster)}${getQueryString()}" class="deployment-link">${item.Name}</a></td>
+                <td>${item.Ready}</td>
+                <td>${item.Age}</td>
+            `);
+
+            updateTableBody('statefulsetTable', data.StatefulSets, item => `
+                <td style="text-align: center;">${getReadyIcon(item.Ready)}</td>
+                <td class="cluster-name"><a href="/cluster/detail?cluster_name=${encodeURIComponent(item.Cluster)}${getQueryString()}" class="deployment-link">${item.Cluster}</a></td>
+                <td><a href="/statefulset/detail?name=${encodeURIComponent(item.Name)}&namespace=${encodeURIComponent(ns)}&cluster_name=${encodeURIComponent(item.Cluster)}${getQueryString()}" class="deployment-link">${item.Name}</a></td>
+                <td>${item.Ready}</td>
+                <td>${item.Age}</td>
+            `);
+
+            updateTableBody('replicasetTable', data.ReplicaSets, item => `
+                <td style="text-align: center;">${getReadyIcon(item.Ready)}</td>
+                <td class="cluster-name"><a href="/cluster/detail?cluster_name=${encodeURIComponent(item.Cluster)}${getQueryString()}" class="deployment-link">${item.Cluster}</a></td>
+                <td><a href="/replicaset/detail?name=${encodeURIComponent(item.Name)}&namespace=${encodeURIComponent(ns)}&cluster_name=${encodeURIComponent(item.Cluster)}${getQueryString()}" class="deployment-link">${item.Name}</a></td>
+                <td>${item.Ready}</td>
+                <td>${item.Age}</td>
+            `);
+
+            updateTableBody('podTable', data.Pods, item => `
+                <td style="text-align: center;">${getStatusIcon(item.Status)}</td>
+                <td class="cluster-name"><a href="/cluster/detail?cluster_name=${encodeURIComponent(item.Cluster)}${getQueryString()}" class="deployment-link">${item.Cluster}</a></td>
+                <td><a href="/pod/detail?name=${encodeURIComponent(item.Name)}&namespace=${encodeURIComponent(ns)}&cluster_name=${encodeURIComponent(item.Cluster)}${getQueryString()}" class="deployment-link">${item.Name}</a></td>
+                <td>${item.Ready}</td>
+                <td><span class="status status-${item.Status.toLowerCase()}">${item.Status}</span></td>
+                <td>${item.Restarts}</td>
+                <td><a href="/node/detail?name=${encodeURIComponent(item.Node)}&cluster_name=${encodeURIComponent(item.Cluster)}${getQueryString()}" class="deployment-link">${item.Node}</a></td>
+                <td>${item.PodIP}</td>
+                <td>${item.Age}</td>
+            `);
+            setSafeText('count-pods', data.Pods ? data.Pods.length : 0);
+
+            // Network (Services + Ingresses)
+            const networkItems = [
+                ...(data.Services || []).map(s => ({...s, kind: 'SVC', link: `/service/detail?name=${encodeURIComponent(s.Name)}&namespace=${encodeURIComponent(ns)}&cluster_name=${encodeURIComponent(s.Cluster)}`, info: `${s.Type} | ${s.ClusterIP}`})),
+                ...(data.Ingresses || []).map(i => ({...i, kind: 'ING', link: `/ingress/detail?name=${encodeURIComponent(i.Name)}&namespace=${encodeURIComponent(ns)}&cluster_name=${encodeURIComponent(i.Cluster)}`, info: i.Hosts}))
+            ];
+            updateTableBody('networkTable', networkItems, item => `
+                <td class="cluster-name"><a href="/cluster/detail?cluster_name=${encodeURIComponent(item.Cluster)}${getQueryString()}" class="deployment-link">${item.Cluster}</a></td>
+                <td><span class="port-tag" style="${item.kind === 'ING' ? 'color:#ec4899; background: rgba(236, 72, 153, 0.1);' : ''}">${item.kind}</span></td>
+                <td><a href="${item.link}${getQueryString()}" class="deployment-link">${item.Name}</a></td>
+                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">${item.info}</td>
+                <td>${item.Age}</td>
+            `);
+
+            // Config (CM + Secrets)
+            updateTableBody('configTable', data.Configs, item => `
+                <td class="cluster-name"><a href="/cluster/detail?cluster_name=${encodeURIComponent(item.Cluster)}${getQueryString()}" class="deployment-link">${item.Cluster}</a></td>
+                <td><span class="image-tag" style="${item.Kind === 'SEC' ? 'color:#ef4444; background:rgba(239, 68, 68, 0.1);' : ''}">${item.Kind}</span></td>
+                <td><a href="/${item.Kind === 'CM' ? 'configmap' : 'secret'}/detail?name=${encodeURIComponent(item.Name)}&namespace=${encodeURIComponent(ns)}&cluster_name=${encodeURIComponent(item.Cluster)}${getQueryString()}" class="deployment-link">${item.Name}</a></td>
+                <td>${item.Details}</td>
+                <td>${item.Age}</td>
+            `);
+
+            // Re-apply filter if user is typing
+            const searchInput = document.getElementById('searchInput');
+            if (searchInput && searchInput.value) {
+                ['deploymentTable', 'daemonsetTable', 'statefulsetTable', 'replicasetTable', 'podTable', 'networkTable', 'configTable'].forEach(id => filterTable('searchInput', id));
+            }
+        }
+
+        function updateTableBody(tableId, items, rowHtmlFn) {
+            const table = document.getElementById(tableId);
+            if (!table) return;
+            const tbody = table.tBodies[0];
+            if (!items || items.length === 0) {
+                tbody.innerHTML = '';
+                return;
+            }
+            tbody.innerHTML = items.map(item => `<tr>${rowHtmlFn(item)}</tr>`).join('');
+
+            // Re-apply current sort if active
+            const activeHeader = table.querySelector('th.sort-asc, th.sort-desc');
+            if (activeHeader) {
+                const colIndex = Array.prototype.indexOf.call(activeHeader.parentElement.children, activeHeader);
+                const sortType = activeHeader.dataset.sortType || 'string';
+                const isAsc = activeHeader.classList.contains('sort-asc');
+                if (typeof sortRows === 'function') sortRows(tbody, colIndex, sortType, isAsc);
+            }
+        }
+
+        function setSafeText(id, text) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = text;
+        }
+
+        function getQueryString() {
+            // Helper to append current query params (like selected clusters) to links
+            const params = new URLSearchParams(window.location.search);
+            params.delete('name'); // Remove resource specific params if any, keep context
+            params.delete('namespace');
+            const str = params.toString();
+            return str ? '&' + str : '';
+        }
+
+        function getReadyIcon(readyStr) {
+            if (!readyStr) return '';
+            const parts = readyStr.split('/');
+            if (parts.length === 2) {
+                const r = parseInt(parts[0]);
+                const d = parseInt(parts[1]);
+                if (r === d) return '<svg class="status-icon status-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>';
+                return '<svg class="status-icon status-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01" /></svg>';
+            }
+            return '';
+        }
+
+        function getStatusIcon(status) {
+            const s = (status || '').toLowerCase();
+            if (s === 'running' || s === 'succeeded' || s === 'completed' || s === 'ready') return '<svg class="status-icon status-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>';
+            if (s === 'failed' || s === 'crashloopbackoff' || s === 'error' || s === 'oomkilled') return '<svg class="status-icon status-error" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 9l-6 6m0-6l6 6" /></svg>';
+            return '<svg class="status-icon status-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2" /></svg>';
+        }
+    </script>
+</body>
+</html>

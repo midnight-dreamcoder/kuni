@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - K8s Universal Inspector</title>
+    <link rel="stylesheet" href="/style.css{{ .CacheBuster }}">
+</head>
+<body>
+
+    {{ template "sidebar" . }}
+
+    <main class="main-content">
+
+        <h1>
+            {{ .Title }}
+            <span class="title-count">({{ .TotalDaemonSets }})</span>
+        </h1>
+
+        <div class="stats-container three-col">
+            
+            <div class="stat-widget">
+                <h3>DaemonSets by Cluster</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        {{ $colors := ColorSlice }}
+                        {{ $totalClusters := 0 }}
+                        {{ range .ClusterStats }}{{ $totalClusters = add $totalClusters .Count }}{{ end }}
+
+                        {{ range $i, $stat := .ClusterStats }}
+                            {{ $color := index $colors (mod $i 10) }}
+                            <div class="bar-segment" 
+                                 style="width: {{ printf "%.2f" (fdiv .Count $totalClusters | mulf 100.0) }}%; background-color: {{ $color }}; box-shadow: 0 0 10px 0px {{ $color }};"
+                                 title="{{ .Name }}: {{ .Count }}"></div>
+                        {{ end }}
+                    </div>
+                    <div class="chart-legend">
+                        {{ range $i, $stat := .ClusterStats }}
+                        <div class="legend-item">
+                            <span class="legend-color" style="background-color: {{ index $colors (mod $i 10) }};"></span>
+                            {{ .Name }} ({{ .Count }})
+                        </div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stat-widget"> 
+                <h3>DaemonSets by Namespace (Top 10)</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        {{ $colors := ColorSlice }}
+                        {{ $totalNS := 0 }}
+                        {{ range .NamespaceStats }}{{ $totalNS = add $totalNS .Count }}{{ end }}
+
+                        {{ range $i, $stat := .NamespaceStats }}
+                            {{ $color := index $colors (mod $i 10) }}
+                            <div class="bar-segment" 
+                                 style="width: {{ printf "%.2f" (fdiv .Count $totalNS | mulf 100.0) }}%; background-color: {{ $color }}; box-shadow: 0 0 10px 0px {{ $color }};"
+                                 title="{{ .Name }}: {{ .Count }}"></div>
+                        {{ end }}
+                    </div>
+                    <div class="chart-legend">
+                        {{ range $i, $stat := .NamespaceStats }}
+                        <div class="legend-item">
+                            <span class="legend-color" style="background-color: {{ index $colors (mod $i 10) }};"></span>
+                            <span class="{{ if eq .Name "Others" }}bar-label-other{{ end }}">{{ .Name }}</span> ({{ .Count }})
+                        </div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+
+            <div class="stat-widget"> 
+                <h3>By Node Selector (Top 10)</h3>
+                <div class="chart-container">
+                    <div class="stacked-bar-container">
+                        {{ $colors := ColorSlice }}
+                        {{ $totalSelector := 0 }}
+                        {{ range .NodeSelectorStats }}{{ $totalSelector = add $totalSelector .Count }}{{ end }}
+
+                        {{ range $i, $stat := .NodeSelectorStats }}
+                            {{ $color := index $colors (mod $i 10) }}
+                            <div class="bar-segment" 
+                                 style="width: {{ printf "%.2f" (fdiv .Count $totalSelector | mulf 100.0) }}%; background-color: {{ $color }}; box-shadow: 0 0 10px 0px {{ $color }};"
+                                 title="{{ .Name }}: {{ .Count }}"></div>
+                        {{ end }}
+                    </div>
+                    <div class="chart-legend">
+                        {{ range $i, $stat := .NodeSelectorStats }}
+                        <div class="legend-item">
+                            <span class="legend-color" style="background-color: {{ index $colors (mod $i 10) }};"></span>
+                            <span class="{{ if eq .Name "Others" }}bar-label-other{{ end }}">{{ .Name }}</span> ({{ .Count }})
+                        </div>
+                        {{ end }}
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+        {{ if .ErrorLogs }}
+        <div class="errors">
+            <h2>Connection Errors</h2>
+            <ul>
+                {{ range .ErrorLogs }} <li>{{ . }}</li> {{ end }}
+            </ul>
+        </div>
+        {{ end }}
+
+        <div class="search-container">
+            <input type="text" id="searchInput" onkeyup="filterTable('searchInput', 'mainTable')" placeholder="Search by daemonset, namespace, or cluster...">
+        </div>
+
+        <div class="container" style="margin-top: 1.5rem;">
+            <table id="mainTable">
+                <thead id="tableHeader">
+                    <tr>
+                        <th class="sortable-header col-ds" data-sort-type="string">DaemonSet</th>
+                        <th class="sortable-header" data-sort-type="number">Ready (Ready/Desired)</th>
+                        <th class="sortable-header" data-sort-type="string">Node Selector</th>
+                        <th class="sortable-header" data-sort-type="duration">Age</th>
+                        <th class="sortable-header col-cluster" data-sort-type="string">Cluster</th>
+                        <th class="sortable-header col-namespace" data-sort-type="string">Namespace</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    {{ range .DaemonSets }}
+                    <tr>
+                        <td class="col-ds">
+                             <a href="{{ MakeURL $.QueryString "/daemonset/detail" "name" .Name "namespace" .Namespace "cluster_name" .Cluster }}" class="deployment-link">
+                                {{ .Name }}
+                            </a>
+                        </td>
+                        <td>{{ .Ready }}</td>
+                        <td><span class="image-tag">{{ .Node }}</span></td>
+                        <td>{{ .Age }}</td>
+                        <td class="cluster-name col-cluster">{{ .Cluster }}</td>
+                        <td class="col-namespace">
+                            <a href="{{ MakeURL $.QueryString "/namespace/detail" "name" .Namespace }}" class="deployment-link">
+                                {{ .Namespace }}
+                            </a>
+                        </td>
+                    </tr>
+                    {{ else }}
+                    <tr>
+                        <td colspan="6" class="no-data">No daemonsets found.</td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+            <div class="footer">
+                Last refreshed: {{ .LastRefreshed }}
+            </div>
+        </div>
+
+    </main>
+
+    <script src="/static/js/table_utils.js"></script>
+</body>
+</html>
